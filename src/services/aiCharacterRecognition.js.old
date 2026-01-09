@@ -1,0 +1,367 @@
+/**
+ * AI Character Recognition Engine
+ * Uses AI to deeply recognize real characters and extract their Jungian archetypal patterns
+ * This replaces letter-based analysis with actual character knowledge
+ */
+
+import OpenAI from 'openai';
+
+let openai = null;
+if (process.env.OPENAI_API_KEY) {
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+}
+
+/**
+ * Recognize a character deeply using AI
+ * Extracts Jungian archetypal patterns, psychological traits, and character arcs
+ */
+export async function recognizeCharacterWithAI(characterName, allCharacters = [], position = null) {
+  // Base recognition structure
+  const recognition = {
+    name: characterName,
+    rawName: characterName.toLowerCase().trim(),
+    
+    // Core Identity
+    primaryArchetype: null,
+    secondaryArchetypes: [],
+    psychologicalCore: null,
+    
+    // Character Arc Recognition
+    arcType: null,
+    arcStage: null,
+    arcTension: null,
+    
+    // Deep Traits
+    discoveredTraits: [],
+    hiddenCapacities: [],
+    coreWounds: [],
+    coreGifts: [],
+    
+    // Relational Patterns
+    relationalPattern: null,
+    attachmentStyle: null,
+    powerDynamics: null,
+    
+    // Decision-Making Patterns
+    decisionFramework: null,
+    valueHierarchy: [],
+    moralCompass: null,
+    
+    // Energy & Presence
+    energySignature: null,
+    presenceQuality: null,
+    impactOnOthers: null,
+    
+    // Shadow & Light (Jungian)
+    shadowElements: [],
+    lightElements: [],
+    integrationPotential: [],
+    
+    // Narrative Function
+    narrativeRole: null,
+    storyFunction: null,
+    transformationPotential: null,
+    
+    // Surprising Insights
+    surprisingAspects: [],
+    contradictions: [],
+    hiddenDepths: [],
+  };
+
+  // If no AI available, use basic recognition
+  if (!openai) {
+    console.warn('No OpenAI API key - using basic character recognition');
+    return recognizeCharacterBasic(characterName, allCharacters, position);
+  }
+
+  try {
+    // Use AI to deeply analyze the character
+    const aiAnalysis = await analyzeCharacterWithAI(characterName, position);
+    
+    // Merge AI analysis into recognition
+    if (aiAnalysis) {
+      recognition.primaryArchetype = aiAnalysis.archetype || null;
+      recognition.psychologicalCore = aiAnalysis.psychologicalCore || null;
+      recognition.discoveredTraits = aiAnalysis.traits || [];
+      recognition.coreWounds = aiAnalysis.wounds || [];
+      recognition.coreGifts = aiAnalysis.gifts || [];
+      recognition.shadowElements = aiAnalysis.shadowAspects || [];
+      recognition.lightElements = aiAnalysis.virtues || [];
+      recognition.arcType = aiAnalysis.arcType || null;
+      recognition.arcStage = aiAnalysis.arcStage || null;
+      recognition.relationalPattern = aiAnalysis.relationalStyle || null;
+      recognition.decisionFramework = aiAnalysis.decisionMaking || null;
+      recognition.valueHierarchy = aiAnalysis.values || [];
+      recognition.energySignature = aiAnalysis.energyPattern || null;
+      recognition.hiddenDepths = aiAnalysis.hiddenDepths || [];
+      recognition.surprisingAspects = aiAnalysis.surprisingInsights || [];
+    }
+    
+    // Fill in any missing fields with basic recognition
+    fillMissingFields(recognition, characterName, allCharacters, position);
+    
+    return recognition;
+  } catch (error) {
+    console.error('AI recognition error:', error);
+    // Fall back to basic recognition
+    return recognizeCharacterBasic(characterName, allCharacters, position);
+  }
+}
+
+/**
+ * Use AI to analyze a character deeply
+ */
+async function analyzeCharacterWithAI(characterName, position = null) {
+  const prompt = `You are a Jungian psychology expert analyzing a character for archetypal patterns. Analyze "${characterName}" and provide a deep psychological profile following Jungian principles.
+
+Consider:
+- Jungian archetypes (Hero, Shadow, Anima/Animus, Trickster, Sage, etc.)
+- Character's psychological core and deepest traits
+- Shadow aspects (what they repress or deny)
+- Light aspects (their virtues and gifts)
+- Character arc type and stage
+- Relational patterns and attachment style
+- Decision-making framework and values
+- Energy signature and presence
+- Hidden depths and surprising insights
+
+Respond with JSON:
+{
+  "archetype": "primary Jungian archetype",
+  "psychologicalCore": "deepest psychological essence",
+  "traits": ["trait1", "trait2", "trait3"],
+  "wounds": ["core wound1", "core wound2"],
+  "gifts": ["core gift1", "core gift2"],
+  "shadowAspects": ["repressed aspect1", "repressed aspect2"],
+  "virtues": ["virtue1", "virtue2"],
+  "arcType": "Hero/Shadow/Mentor/etc",
+  "arcStage": "Beginning/Confrontation/Transformation/Integration",
+  "relationalStyle": "how they relate to others",
+  "decisionMaking": "their decision framework",
+  "values": ["value1", "value2", "value3"],
+  "energyPattern": "their energy signature",
+  "hiddenDepths": ["hidden insight1", "hidden insight2"],
+  "surprisingInsights": ["surprising aspect1", "surprising aspect2"]
+}
+
+${position ? `This character is in the "${position}" position (ego/persona/shadow/feeling).` : ''}`;
+
+  try {
+    // Use gpt-4o as default for reliability, o1-preview as optional upgrade
+    // If o1 models fail, automatically fall back to gpt-4o
+    let model = process.env.OPENAI_RECOGNITION_MODEL || 'gpt-4o';
+    let useO1 = model.startsWith('o1');
+    
+    // o1 models don't support system messages or response_format
+    // They also need explicit JSON instructions in the prompt
+    const enhancedPrompt = model.startsWith('o1')
+      ? `You are a Jungian psychology expert. You MUST respond with valid JSON only, no other text, following Jungian archetypal psychology principles.
+
+${prompt}
+
+IMPORTANT: Respond with ONLY a JSON object in this exact format (no markdown, no code blocks, just raw JSON):
+{
+  "archetype": "primary Jungian archetype",
+  "psychologicalCore": "deepest psychological essence",
+  "traits": ["trait1", "trait2", "trait3"],
+  "wounds": ["core wound1", "core wound2"],
+  "gifts": ["core gift1", "core gift2"],
+  "shadowAspects": ["repressed aspect1", "repressed aspect2"],
+  "virtues": ["virtue1", "virtue2"],
+  "arcType": "Hero/Shadow/Mentor/etc",
+  "arcStage": "Beginning/Confrontation/Transformation/Integration",
+  "relationalStyle": "how they relate to others",
+  "decisionMaking": "their decision framework",
+  "values": ["value1", "value2", "value3"],
+  "energyPattern": "their energy signature",
+  "hiddenDepths": ["hidden insight1", "hidden insight2"],
+  "surprisingInsights": ["surprising aspect1", "surprising aspect2"]
+}`
+      : prompt;
+    
+    const messages = model.startsWith('o1')
+      ? [{ role: 'user', content: enhancedPrompt }]
+      : [
+          { role: 'system', content: 'You are a Jungian psychology expert. Always respond with valid JSON only, following Jungian archetypal psychology principles.' },
+          { role: 'user', content: prompt },
+        ];
+    
+    const requestConfig = {
+      model,
+      messages,
+      ...(model.startsWith('o1') ? {} : { response_format: { type: 'json_object' }, temperature: 0.7 }),
+    };
+    
+    let response;
+    try {
+      response = await openai.chat.completions.create(requestConfig);
+    } catch (apiError) {
+      // If o1 model fails, fall back to gpt-4o
+      if (useO1 && (
+        apiError.message?.includes('not found') || 
+        apiError.status === 404 ||
+        apiError.message?.includes('model') ||
+        apiError.code === 'model_not_found'
+      )) {
+        console.warn(`[AI Recognition] o1 model ${model} not available, falling back to gpt-4o`);
+        model = 'gpt-4o';
+        useO1 = false;
+        const fallbackMessages = [
+          { role: 'system', content: 'You are a Jungian psychology expert. Always respond with valid JSON only, following Jungian archetypal psychology principles.' },
+          { role: 'user', content: prompt },
+        ];
+        response = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: fallbackMessages,
+          response_format: { type: 'json_object' },
+          temperature: 0.7,
+        });
+      } else {
+        console.error('[AI Recognition] API error:', apiError);
+        throw new Error(`OpenAI API error: ${apiError.message || 'Unknown error'}`);
+      }
+    }
+
+    const content = response.choices[0].message.content.trim();
+    let jsonContent = content;
+    
+    // Handle markdown code blocks
+    if (content.startsWith('```')) {
+      const match = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (match) {
+        jsonContent = match[1];
+      }
+    }
+    
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonContent);
+    } catch (parseError) {
+      console.error('[AI Recognition] JSON parse error:', parseError);
+      console.error('[AI Recognition] Content that failed to parse:', jsonContent.substring(0, 500));
+      throw new Error(`Failed to parse AI response as JSON: ${parseError.message}`);
+    }
+    
+    return parsed;
+  } catch (error) {
+    console.error('AI character analysis error:', error);
+    return null;
+  }
+}
+
+/**
+ * Fill in missing fields with basic recognition
+ */
+function fillMissingFields(recognition, characterName, allCharacters, position) {
+  const name = characterName.toLowerCase().trim();
+  
+  // Fill in defaults if AI didn't provide them
+  if (!recognition.primaryArchetype) {
+    recognition.primaryArchetype = position === 'ego' ? 'Hero' : 
+                                   position === 'shadow' ? 'Shadow' :
+                                   position === 'persona' ? 'Persona' : 'Complex';
+  }
+  
+  if (!recognition.psychologicalCore) {
+    recognition.psychologicalCore = `The psychological essence of ${characterName}`;
+  }
+  
+  if (recognition.discoveredTraits.length === 0) {
+    recognition.discoveredTraits = ['Deep', 'Complex', 'Multi-faceted'];
+  }
+  
+  if (recognition.coreWounds.length === 0) {
+    recognition.coreWounds = ['Hidden wound to be discovered'];
+  }
+  
+  if (recognition.coreGifts.length === 0) {
+    recognition.coreGifts = ['Hidden gift to be discovered'];
+  }
+  
+  if (recognition.shadowElements.length === 0) {
+    recognition.shadowElements = ['Repressed aspects'];
+  }
+  
+  if (recognition.lightElements.length === 0) {
+    recognition.lightElements = ['Hidden virtues'];
+  }
+  
+  if (!recognition.arcType) {
+    recognition.arcType = position === 'ego' ? 'Hero' : 'Shadow';
+  }
+  
+  if (!recognition.arcStage) {
+    recognition.arcStage = position === 'ego' ? 'Beginning' : 'Confrontation';
+  }
+  
+  if (!recognition.relationalPattern) {
+    recognition.relationalPattern = 'Complex relational dynamics';
+  }
+  
+  if (!recognition.decisionFramework) {
+    recognition.decisionFramework = 'Value-based decisions';
+  }
+  
+  if (recognition.valueHierarchy.length === 0) {
+    recognition.valueHierarchy = ['Integrity', 'Truth', 'Growth'];
+  }
+  
+  if (!recognition.energySignature) {
+    recognition.energySignature = 'Dynamic, complex energy';
+  }
+}
+
+/**
+ * Basic recognition fallback (when AI is not available)
+ */
+async function recognizeCharacterBasic(characterName, allCharacters, position) {
+  // Import the existing recognition function
+  const { recognizeCharacter } = await import('./characterRecognition.js');
+  return recognizeCharacter(characterName, allCharacters, position);
+}
+
+/**
+ * Recognize all characters using AI
+ */
+export async function recognizeAllCharactersWithAI(characters, assessments = []) {
+  if (!openai) {
+    // Fall back to basic recognition
+    const { recognizeAllCharacters } = await import('./characterRecognition.js');
+    return recognizeAllCharacters(characters, assessments);
+  }
+
+  const recognitions = [];
+  
+  for (const char of characters) {
+    const name = char.displayName || char.id;
+    
+    // Determine position from assessments
+    let position = null;
+    assessments.forEach(assessment => {
+      if (assessment.selectedCharacterIds && 
+          assessment.selectedCharacterIds.includes(char.id)) {
+        switch (assessment.assessmentType) {
+          case 'EGO_POSITION':
+            position = 'ego';
+            break;
+          case 'PERSONA_FORMATION':
+            position = 'persona';
+            break;
+          case 'SHADOW_PROXIMITY':
+            position = 'shadow';
+            break;
+          case 'FEELING_FUNCTION':
+            position = 'feeling';
+            break;
+        }
+      }
+    });
+    
+    const recognition = await recognizeCharacterWithAI(name, characters, position);
+    recognitions.push(recognition);
+  }
+  
+  return recognitions;
+}

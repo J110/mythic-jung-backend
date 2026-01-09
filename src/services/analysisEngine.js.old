@@ -1,0 +1,555 @@
+/**
+ * Analysis Engine
+ * Stitches together attributes from character arcs discovered by recognition engine.
+ * Creates a coherent psychological profile by analyzing relationships between characters,
+ * their arcs, and how they interact to form the user's psychological landscape.
+ */
+
+import { recognizeAllCharacters } from './characterRecognition.js';
+import { recognizeAllCharactersWithAI } from './aiCharacterRecognition.js';
+
+/**
+ * Analyze all characters and their relationships to create a unified profile
+ */
+export async function analyzeCharacterLandscape(characters, assessments = []) {
+  // First, recognize all characters deeply using AI if available
+  let recognitions;
+  try {
+    recognitions = await recognizeAllCharactersWithAI(characters, assessments);
+  } catch (error) {
+    console.warn('AI recognition failed, using basic recognition:', error);
+    recognitions = recognizeAllCharacters(characters, assessments);
+  }
+  
+  // Then analyze their relationships and create a unified landscape
+  const analysis = {
+    characters: recognitions,
+    
+    // Unified Psychological Profile
+    psychologicalProfile: null,
+    
+    // Character Relationships
+    relationships: [],
+    tensions: [],
+    harmonies: [],
+    
+    // Archetypal Configuration
+    archetypalConfiguration: null,
+    dominantPatterns: [],
+    hiddenPatterns: [],
+    
+    // Psychological Dynamics
+    dynamics: [],
+    conflicts: [],
+    integrations: [],
+    
+    // Surprising Discoveries
+    discoveries: [],
+    insights: [],
+    revelations: [],
+  };
+  
+  // Analyze relationships between characters
+  analyzeRelationships(recognitions, analysis);
+  
+  // Analyze archetypal configuration
+  analyzeArchetypalConfiguration(recognitions, analysis);
+  
+  // Analyze psychological dynamics
+  analyzePsychologicalDynamics(recognitions, analysis, assessments);
+  
+  // Discover surprising patterns
+  discoverSurprisingPatterns(recognitions, analysis, assessments);
+  
+  // Create unified psychological profile
+  createUnifiedProfile(recognitions, analysis, assessments);
+  
+  return analysis;
+}
+
+/**
+ * Analyze relationships between characters
+ */
+function analyzeRelationships(recognitions, analysis) {
+  // Find complementary pairs
+  for (let i = 0; i < recognitions.length; i++) {
+    for (let j = i + 1; j < recognitions.length; j++) {
+      const char1 = recognitions[i];
+      const char2 = recognitions[j];
+      
+      // Complementary relationships
+      if (char1.primaryArchetype !== char2.primaryArchetype) {
+        analysis.relationships.push({
+          type: 'complementary',
+          characters: [char1.name, char2.name],
+          dynamic: `${char1.name} and ${char2.name} create balance through contrast`,
+          insight: `The ${char1.primaryArchetype} and ${char2.primaryArchetype} archetypes work together`,
+        });
+      }
+      
+      // Tension relationships
+      if (char1.arcStage === 'Beginning' && char2.arcStage === 'Confrontation') {
+        analysis.tensions.push({
+          type: 'arc-tension',
+          characters: [char1.name, char2.name],
+          dynamic: `${char1.name}'s beginning is challenged by ${char2.name}'s confrontation`,
+          insight: `Growth requires facing what ${char2.name} represents`,
+        });
+      }
+      
+      // Harmony relationships
+      if (char1.energySignature && char2.energySignature &&
+          char1.energySignature.includes('Active') && char2.energySignature.includes('Receptive')) {
+        analysis.harmonies.push({
+          type: 'energy-harmony',
+          characters: [char1.name, char2.name],
+          dynamic: `${char1.name}'s active energy is balanced by ${char2.name}'s receptive energy`,
+          insight: `These energies create a dynamic balance`,
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Analyze archetypal configuration
+ */
+function analyzeArchetypalConfiguration(recognitions, analysis) {
+  const archetypes = recognitions.map(r => r.primaryArchetype);
+  const uniqueArchetypes = [...new Set(archetypes)];
+  
+  analysis.archetypalConfiguration = {
+    primary: uniqueArchetypes[0] || 'Complex',
+    secondary: uniqueArchetypes.slice(1),
+    pattern: determineArchetypalPattern(uniqueArchetypes),
+  };
+  
+  // Find dominant patterns
+  const archetypeCounts = {};
+  archetypes.forEach(arch => {
+    archetypeCounts[arch] = (archetypeCounts[arch] || 0) + 1;
+  });
+  
+  analysis.dominantPatterns = Object.entries(archetypeCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([arch, count]) => ({
+      archetype: arch,
+      frequency: count,
+      significance: count > 1 ? 'Recurring pattern' : 'Unique presence',
+    }));
+  
+  // Find hidden patterns
+  analysis.hiddenPatterns = discoverHiddenPatterns(recognitions);
+}
+
+function determineArchetypalPattern(archetypes) {
+  if (archetypes.length === 1) {
+    return 'Unified - single dominant archetype';
+  } else if (archetypes.length <= 3) {
+    return 'Focused - clear archetypal structure';
+  } else {
+    return 'Complex - multiple archetypal layers';
+  }
+}
+
+function discoverHiddenPatterns(recognitions) {
+  const patterns = [];
+  
+  // Pattern: All characters in similar arc stages
+  const arcStages = recognitions.map(r => r.arcStage);
+  const uniqueStages = [...new Set(arcStages)];
+  if (uniqueStages.length === 1) {
+    patterns.push({
+      type: 'arc-synchrony',
+      insight: `All characters are at the same arc stage: ${uniqueStages[0]}. This suggests a unified moment in your psychological journey.`,
+      significance: 'All aspects of yourself are moving together',
+    });
+  }
+  
+  // Pattern: Alternating energy signatures
+  const energies = recognitions.map(r => r.energySignature);
+  let alternates = true;
+  for (let i = 1; i < energies.length; i++) {
+    if (energies[i] === energies[i-1]) {
+      alternates = false;
+      break;
+    }
+  }
+  if (alternates && energies.length > 2) {
+    patterns.push({
+      type: 'energy-alternation',
+      insight: 'Energy signatures alternate - a rhythm of active and receptive',
+      significance: 'Your psychological energy moves in waves',
+    });
+  }
+  
+  return patterns;
+}
+
+/**
+ * Analyze psychological dynamics
+ */
+function analyzePsychologicalDynamics(recognitions, analysis, assessments) {
+  // Analyze how characters interact psychologically
+  
+  // Dynamic 1: Ego-Shadow tension
+  const egoChars = recognitions.filter(r => 
+    assessments.some(a => 
+      a.assessmentType === 'EGO_POSITION' && 
+      a.selectedCharacterIds && 
+      a.selectedCharacterIds.some(id => 
+        recognitions.find(rec => rec.name === id || rec.name.includes(id))
+      )
+    )
+  );
+  const shadowChars = recognitions.filter(r => 
+    assessments.some(a => 
+      a.assessmentType === 'SHADOW_PROXIMITY' && 
+      a.selectedCharacterIds && 
+      a.selectedCharacterIds.some(id => 
+        recognitions.find(rec => rec.name === id || rec.name.includes(id))
+      )
+    )
+  );
+  
+  if (egoChars.length > 0 && shadowChars.length > 0) {
+    analysis.dynamics.push({
+      type: 'ego-shadow-dynamic',
+      description: `The tension between ${egoChars[0].name} (ego) and ${shadowChars[0].name} (shadow) drives your psychological development`,
+      insight: `Your conscious identity (${egoChars[0].name}) is challenged by what you've repressed (${shadowChars[0].name})`,
+      significance: 'This is the core tension of your journey',
+    });
+    
+    analysis.conflicts.push({
+      type: 'conscious-unconscious',
+      between: [egoChars[0].name, shadowChars[0].name],
+      nature: 'Integration challenge',
+      resolution: 'Integration requires acknowledging both',
+    });
+  }
+  
+  // Dynamic 2: Persona adaptation
+  const personaChars = recognitions.filter(r => 
+    assessments.some(a => 
+      a.assessmentType === 'PERSONA_FORMATION' && 
+      a.selectedCharacterIds && 
+      a.selectedCharacterIds.some(id => 
+        recognitions.find(rec => rec.name === id || rec.name.includes(id))
+      )
+    )
+  );
+  
+  if (personaChars.length > 0) {
+    analysis.dynamics.push({
+      type: 'persona-dynamic',
+      description: `${personaChars.map(c => c.name).join(' and ')} represent how you adapt socially`,
+      insight: `These characters show your social adaptation strategy`,
+      significance: 'The gap between persona and authentic self creates tension',
+    });
+  }
+  
+  // Find integration opportunities
+  analysis.integrations = findIntegrationOpportunities(recognitions, assessments);
+}
+
+function findIntegrationOpportunities(recognitions, assessments) {
+  const integrations = [];
+  
+  // Integration: Characters that complement each other
+  for (let i = 0; i < recognitions.length; i++) {
+    for (let j = i + 1; j < recognitions.length; j++) {
+      const char1 = recognitions[i];
+      const char2 = recognitions[j];
+      
+      if (char1.arcType === 'Hero' && char2.arcType === 'Shadow') {
+        integrations.push({
+          type: 'hero-shadow-integration',
+          characters: [char1.name, char2.name],
+          potential: `Integrating ${char1.name}'s conscious identity with ${char2.name}'s shadow wisdom`,
+          insight: `This integration would create a more complete self`,
+        });
+      }
+    }
+  }
+  
+  return integrations;
+}
+
+/**
+ * Discover surprising patterns
+ */
+function discoverSurprisingPatterns(recognitions, analysis, assessments) {
+  // Surprise 1: Unexpected character choices
+  const simpleNames = recognitions.filter(r => r.rawName.length <= 2);
+  if (simpleNames.length === recognitions.length) {
+    analysis.discoveries.push({
+      type: 'simplicity-pattern',
+      insight: 'All characters have simple names - this suggests a preference for essential, direct expression',
+      significance: 'You may value simplicity over complexity, or there may be hidden depth in simplicity',
+      surprising: 'Simple names can carry profound meaning',
+    });
+  }
+  
+  // Surprise 2: Character order reveals patterns
+  const orderPattern = recognitions.map((r, i) => ({
+    name: r.name,
+    position: i,
+    archetype: r.primaryArchetype,
+  }));
+  
+  analysis.discoveries.push({
+    type: 'order-pattern',
+    insight: `The order of characters (${orderPattern.map(p => p.name).join(' → ')}) reveals a narrative sequence`,
+    significance: 'The sequence itself tells a story about your psychological journey',
+    surprising: 'The order matters as much as the characters themselves',
+  });
+  
+  // Surprise 3: Hidden connections
+  const connections = findHiddenConnections(recognitions);
+  if (connections.length > 0) {
+    analysis.discoveries.push({
+      type: 'hidden-connections',
+      insight: `Hidden connections discovered: ${connections.map(c => c.description).join('; ')}`,
+      significance: 'Characters are more connected than they appear',
+      surprising: 'The relationships between characters reveal deeper patterns',
+    });
+  }
+  
+  // Generate insights
+  analysis.insights = generateInsights(recognitions, analysis, assessments);
+  
+  // Generate revelations
+  analysis.revelations = generateRevelations(recognitions, analysis, assessments);
+}
+
+function findHiddenConnections(recognitions) {
+  const connections = [];
+  
+  // Connection: Shared traits
+  for (let i = 0; i < recognitions.length; i++) {
+    for (let j = i + 1; j < recognitions.length; j++) {
+      const shared = recognitions[i].discoveredTraits.filter(t => 
+        recognitions[j].discoveredTraits.includes(t)
+      );
+      if (shared.length > 0) {
+        connections.push({
+          characters: [recognitions[i].name, recognitions[j].name],
+          description: `${recognitions[i].name} and ${recognitions[j].name} share: ${shared.join(', ')}`,
+        });
+      }
+    }
+  }
+  
+  return connections;
+}
+
+function generateInsights(recognitions, analysis, assessments) {
+  const insights = [];
+  
+  // Insight 1: What the character selection reveals
+  insights.push({
+    type: 'selection-insight',
+    content: `The selection of these specific characters (${recognitions.map(r => r.name).join(', ')}) reveals something about your psychological landscape. Each choice carries meaning.`,
+  });
+  
+  // Insight 2: Pattern recognition
+  if (analysis.dominantPatterns.length > 0) {
+    insights.push({
+      type: 'pattern-insight',
+      content: `The dominant pattern is ${analysis.dominantPatterns[0].archetype} - this archetype appears ${analysis.dominantPatterns[0].frequency} time(s), suggesting it's central to your psychological structure.`,
+    });
+  }
+  
+  // Insight 3: Tension insight
+  if (analysis.tensions.length > 0) {
+    insights.push({
+      type: 'tension-insight',
+      content: `The tension between ${analysis.tensions[0].characters.join(' and ')} is not a problem to solve, but a dynamic that drives growth. ${analysis.tensions[0].insight}`,
+    });
+  }
+  
+  return insights;
+}
+
+function generateRevelations(recognitions, analysis, assessments) {
+  const revelations = [];
+  
+  // Revelation 1: What you didn't know about yourself
+  if (recognitions.length > 0) {
+    revelations.push({
+      type: 'self-revelation',
+      content: `You may not have realized that ${recognitions[0].name} represents ${recognitions[0].primaryArchetype} energy in your life. This recognition itself is a revelation.`,
+    });
+  }
+  
+  // Revelation 2: Hidden pattern
+  if (analysis.hiddenPatterns.length > 0) {
+    revelations.push({
+      type: 'pattern-revelation',
+      content: analysis.hiddenPatterns[0].insight,
+    });
+  }
+  
+  // Revelation 3: Integration potential
+  if (analysis.integrations.length > 0) {
+    revelations.push({
+      type: 'integration-revelation',
+      content: analysis.integrations[0].insight,
+    });
+  }
+  
+  return revelations;
+}
+
+/**
+ * Create unified psychological profile
+ */
+function createUnifiedProfile(recognitions, analysis, assessments) {
+  // Synthesize all recognitions into a unified profile
+  const profile = {
+    coreIdentity: synthesizeCoreIdentity(recognitions, analysis),
+    psychologicalStructure: synthesizeStructure(recognitions, analysis),
+    developmentalArc: synthesizeDevelopmentalArc(recognitions, analysis),
+    keyTensions: analysis.tensions.map(t => t.dynamic),
+    integrationPoints: analysis.integrations.map(i => i.potential),
+    surprisingAspects: analysis.discoveries.map(d => d.insight),
+  };
+  
+  analysis.psychologicalProfile = profile;
+}
+
+function synthesizeCoreIdentity(recognitions, analysis) {
+  if (recognitions.length === 0) return 'Complex, multi-faceted';
+  
+  const primary = recognitions[0];
+  return {
+    primary: primary.primaryArchetype,
+    essence: primary.psychologicalCore,
+    traits: primary.discoveredTraits.slice(0, 3),
+    surprising: primary.surprisingAspects[0] || 'Depth to be discovered',
+  };
+}
+
+function synthesizeStructure(recognitions, analysis) {
+  return {
+    archetypal: analysis.archetypalConfiguration.pattern,
+    dominant: analysis.dominantPatterns[0]?.archetype || 'Complex',
+    hidden: analysis.hiddenPatterns.map(p => p.type),
+    relationships: analysis.relationships.length,
+  };
+}
+
+function synthesizeDevelopmentalArc(recognitions, analysis) {
+  const stages = recognitions.map(r => r.arcStage);
+  const uniqueStages = [...new Set(stages)];
+  
+  return {
+    currentStage: uniqueStages[0] || 'Beginning',
+    stages: uniqueStages,
+    direction: analysis.integrations.length > 0 ? 'Integration' : 'Development',
+    tension: analysis.tensions[0]?.dynamic || 'Growth through challenge',
+  };
+}
+
+/**
+ * Classify characters into archetypal positions based on analysis
+ */
+export function classifyByAnalysis(analysis, assessments = []) {
+  const recognitions = analysis.characters;
+  
+  // Use analysis insights to classify
+  const classification = {
+    ego: [],
+    persona: [],
+    shadow: [],
+    shadowVirtue: [],
+    feelingFunction: [],
+    erosAxis: [],
+  };
+  
+  // Classify based on assessments first
+  assessments.forEach(assessment => {
+    const selected = assessment.selectedCharacterIds || [];
+    selected.forEach(charId => {
+      const recognition = recognitions.find(r => 
+        r.name === charId || 
+        r.name.toLowerCase().includes(charId.toLowerCase()) ||
+        charId.toLowerCase().includes(r.name.toLowerCase())
+      );
+      
+      if (recognition) {
+        switch (assessment.assessmentType) {
+          case 'EGO_POSITION':
+            if (!classification.ego.includes(recognition.name)) {
+              classification.ego.push(recognition.name);
+            }
+            break;
+          case 'PERSONA_FORMATION':
+            if (!classification.persona.includes(recognition.name)) {
+              classification.persona.push(recognition.name);
+            }
+            break;
+          case 'SHADOW_PROXIMITY':
+            if (!classification.shadow.includes(recognition.name)) {
+              classification.shadow.push(recognition.name);
+            }
+            break;
+          case 'FEELING_FUNCTION':
+            if (!classification.feelingFunction.includes(recognition.name)) {
+              classification.feelingFunction.push(recognition.name);
+            }
+            break;
+        }
+      }
+    });
+  });
+  
+  // Fill in gaps using analysis insights
+  if (classification.ego.length === 0) {
+    const hero = recognitions.find(r => r.arcType === 'Hero') || recognitions[0];
+    classification.ego = [hero.name];
+  }
+  
+  if (classification.persona.length === 0) {
+    const persona = recognitions.find(r => r.narrativeRole === 'Mask') || 
+                   recognitions.find(r => r.arcStage === 'Social adaptation') ||
+                   recognitions[1] || recognitions[0];
+    classification.persona = [persona.name];
+  }
+  
+  if (classification.shadow.length === 0) {
+    const shadow = recognitions.find(r => r.arcType === 'Shadow') ||
+                  recognitions.find(r => r.narrativeRole === 'Shadow guide') ||
+                  recognitions[3] || recognitions[2] || recognitions[0];
+    classification.shadow = [shadow.name];
+  }
+  
+  if (classification.feelingFunction.length === 0) {
+    const feeling = recognitions.find(r => 
+      r.relationalPattern && r.relationalPattern.includes('connection')
+    ) || recognitions[4] || recognitions[3] || recognitions[0];
+    classification.feelingFunction = [feeling.name];
+  }
+  
+  // Shadow virtue from shadow
+  if (classification.shadowVirtue.length === 0 && classification.shadow.length > 0) {
+    classification.shadowVirtue = [classification.shadow[0]];
+  }
+  
+  // Eros axis from feeling or unused character
+  if (classification.erosAxis.length === 0) {
+    const used = new Set([
+      ...classification.ego,
+      ...classification.persona,
+      ...classification.shadow,
+      ...classification.feelingFunction,
+    ]);
+    const unused = recognitions.filter(r => !used.has(r.name));
+    classification.erosAxis = unused.length > 0 
+      ? [unused[0].name]
+      : [classification.feelingFunction[0] || classification.ego[0]];
+  }
+  
+  return classification;
+}

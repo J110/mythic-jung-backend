@@ -1,0 +1,197 @@
+/**
+ * Dynamic Generator - Creates personalized output based on character analysis
+ * and assessment answers. No hardcoding - all content is generated dynamically.
+ * 
+ * This generator uses:
+ * 1. Character Recognition Engine - identifies deep traits and arcs
+ * 2. Analysis Engine - stitches together attributes from character arcs
+ * 3. Narrative Engine - generates surprising, insightful narratives
+ */
+
+import { analyzeCharacterLandscape, classifyByAnalysis } from './analysisEngine.js';
+import { generateJungianNarrative, generateJungianIdentification } from './jungianNarrativeEngine.js';
+import { generateFunctioning, generateActions, generateLifeDomains } from './narrativeEngine.js';
+import { validateCharactersWithAI } from './aiCharacterValidator.js';
+
+/**
+ * Generate personalized output based on character analysis and assessments
+ */
+export async function generateDynamicOutput(userData) {
+  try {
+    const { profile, assessments } = userData;
+    const characters = profile?.characters || [];
+    
+    if (characters.length === 0) {
+      throw new Error('No characters provided');
+    }
+    
+    // VALIDATION: Use AI to check if characters are real
+    console.log('[AI Validator] Checking if characters are recognized...');
+    let validation;
+    try {
+      validation = await validateCharactersWithAI(characters);
+    } catch (validationError) {
+      console.error('[AI Validator] Validation error:', validationError);
+      throw new Error(`Character validation failed: ${validationError.message}`);
+    }
+  
+  if (!validation.valid) {
+    const errorMessage = validation.suggestions 
+      ? `${validation.reason}\n\n${validation.suggestions.join('\n')}`
+      : validation.reason;
+    throw new Error(errorMessage);
+  }
+  
+    console.log(`[AI Validator] Validated: ${validation.recognized.length} characters recognized`);
+    if (validation.unrecognized && validation.unrecognized.length > 0) {
+      console.log(`[AI Validator] Unrecognized (but proceeding): ${validation.unrecognized.join(', ')}`);
+    }
+    if (validation.confidenceScore !== undefined) {
+      console.log(`[AI Validator] Overall confidence score: ${Math.round(validation.confidenceScore * 100)}%`);
+    }
+  
+    console.log('[AI Recognition Engine] Starting deep character recognition with AI...');
+    
+    // STEP 1: AI Recognition Engine - Identify deep traits and character arcs using AI
+    let analysis;
+    try {
+      analysis = await analyzeCharacterLandscape(characters, assessments);
+    } catch (analysisError) {
+      console.error('[AI Recognition] Analysis error:', analysisError);
+      throw new Error(`Character analysis failed: ${analysisError.message}`);
+    }
+  
+    console.log('[Recognition Engine] Recognized', analysis.characters.length, 'characters');
+    console.log('[Recognition Engine] Discovered', analysis.discoveries.length, 'surprising patterns');
+    
+    // STEP 2: Analysis Engine - Stitch together attributes from character arcs
+    console.log('[Analysis Engine] Analyzing character relationships and patterns...');
+    const classification = classifyByAnalysis(analysis, assessments);
+    
+    console.log('[Analysis Engine] Classified characters:', {
+      ego: classification.ego,
+      persona: classification.persona,
+      shadow: classification.shadow,
+    });
+    
+    // STEP 3: Jungian Narrative Engine - Generate truly dynamic, personalized narratives
+    console.log('[Jungian Narrative Engine] Generating personalized narratives based on deep analysis...');
+    const story = generateJungianNarrative(analysis, classification, characters);
+    const identification = generateJungianIdentification(analysis, classification, characters);
+    const functioning = generateFunctioning(analysis, classification, characters);
+    const actions = generateActions(analysis, classification, characters);
+    const lifeDomains = generateLifeDomains(analysis, classification, characters);
+    const evidence = generatePersonalizedEvidence(assessments, classification, characters);
+    
+    console.log('[Narrative Engine] Generated all narrative sections');
+    
+    const now = new Date().toISOString();
+    
+    return {
+      story,
+      identification: {
+        ...identification,
+        evidence,
+      },
+      functioning,
+      actions,
+      lifeDomains,
+      meta: {
+        generatedAt: now,
+        modelVersion: 'recognition-analysis-narrative-v1',
+        promptVersion: 'v3',
+        schemaVersion: 1,
+      },
+    };
+  } catch (error) {
+    console.error('[Dynamic Generator] Error:', error);
+    console.error('[Dynamic Generator] Stack:', error.stack);
+    throw error; // Re-throw to be handled by the route
+  }
+}
+
+/**
+ * Generate evidence mapping from assessments to output sections
+ */
+function generatePersonalizedEvidence(assessments, classification, characters) {
+  const evidence = [];
+  
+  // Map assessments to evidence
+  if (!assessments || !Array.isArray(assessments)) {
+    assessments = [];
+  }
+  
+  assessments.forEach(assessment => {
+    if (!assessment.selectedCharacterIds || assessment.selectedCharacterIds.length === 0) {
+      return;
+    }
+    
+    const characterRefs = assessment.selectedCharacterIds.map(charId => {
+      const char = characters.find(c => c.id === charId || c.displayName === charId);
+      return char ? (char.displayName || char.id) : charId;
+    });
+    
+    let targetPath = '';
+    switch (assessment.assessmentType) {
+      case 'LIBIDINAL_CHARGE':
+        targetPath = 'identification.ego';
+        break;
+      case 'EGO_POSITION':
+        targetPath = 'identification.ego';
+        break;
+      case 'PERSONA_FORMATION':
+        targetPath = 'identification.persona';
+        break;
+      case 'SHADOW_PROXIMITY':
+        targetPath = 'identification.shadow';
+        break;
+      case 'FEELING_FUNCTION':
+        targetPath = 'identification.feelingFunction';
+        break;
+      case 'COST_COMPENSATION':
+        targetPath = 'functioning.costsAndCompensations';
+        break;
+      case 'INDIVIDUATION_DIRECTION':
+        targetPath = 'functioning.narrativeArc';
+        break;
+      default:
+        targetPath = `identification.${assessment.assessmentType.toLowerCase()}`;
+    }
+    
+    if (targetPath && characterRefs.length > 0) {
+      evidence.push({
+        targetPath,
+        characterRefs,
+        assessmentRefs: [assessment.questionId || assessment.assessmentType],
+      });
+    }
+  });
+  
+  // Add fallback evidence for classified positions
+  const archetypePaths = {
+    'identification.ego': classification.ego,
+    'identification.persona': classification.persona,
+    'identification.shadow': classification.shadow,
+    'identification.shadowVirtue': classification.shadowVirtue,
+    'identification.feelingFunction': classification.feelingFunction,
+    'identification.erosAxis': classification.erosAxis,
+  };
+  
+  Object.entries(archetypePaths).forEach(([path, chars]) => {
+    const hasEvidence = evidence.some(e => e.targetPath === path);
+    if (!hasEvidence && chars && chars.length > 0) {
+      const charNames = chars.map(charName => {
+        const char = characters.find(c => c.displayName === charName || c.id === charName);
+        return char ? (char.displayName || char.id) : charName;
+      });
+      
+      evidence.push({
+        targetPath: path,
+        characterRefs: charNames,
+        assessmentRefs: ['CLASSIFICATION'],
+      });
+    }
+  });
+  
+  return evidence;
+}

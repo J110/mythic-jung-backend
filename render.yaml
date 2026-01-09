@@ -1,0 +1,17 @@
+# Render Blueprint for Mythic Jung Backend
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: mythic-jung-api
+    env: node
+    region: oregon # or singapore, frankfurt, ohio
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: OPENAI_API_KEY
+        sync: false # You'll set this manually in Render dashboard

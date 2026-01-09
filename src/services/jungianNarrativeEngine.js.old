@@ -1,0 +1,293 @@
+/**
+ * Jungian Narrative Engine
+ * Generates truly dynamic, personalized narratives based on deep character analysis
+ * following Jungian principles of archetypes, shadow, persona, individuation, and the collective unconscious.
+ * 
+ * This engine creates unique narratives that are:
+ * - Comprehensive: Deep psychological insights
+ * - Personalized: Based on actual character analysis
+ * - Insightful: Reveals hidden patterns and truths
+ * - Surprising: Discovers unexpected connections
+ * - Jungian: Follows principles of analytical psychology
+ */
+
+/**
+ * Generate a complete Jungian narrative based on character analysis
+ */
+export function generateJungianNarrative(analysis, classification, characters) {
+  const recognitions = analysis.characters;
+  
+  // Find characters by name for each position
+  const getRecognition = (name) => 
+    recognitions.find(r => r.name === name || r.name.toLowerCase() === name.toLowerCase()) ||
+    recognitions[0];
+  
+  const egoRec = getRecognition(classification.ego[0]);
+  const personaRecs = classification.persona.map(name => getRecognition(name));
+  const shadowRecs = classification.shadow.map(name => getRecognition(name));
+  const feelingRec = getRecognition(classification.feelingFunction[0]);
+  const shadowVirtueRec = getRecognition(classification.shadowVirtue[0] || classification.shadow[0]);
+  
+  // Generate Jungian narrative sections
+  const story = {
+    mythSummary: generateJungianMythSummary(analysis, egoRec, personaRecs, shadowRecs, feelingRec),
+    centralTension: generateJungianCentralTension(analysis, egoRec, personaRecs[0], shadowRecs[0]),
+    guidingSentence: generateJungianGuidingSentence(analysis, egoRec, shadowRecs[0], shadowVirtueRec),
+    northStarScene: generateJungianNorthStarScene(analysis, egoRec, personaRecs[0], shadowRecs[0], feelingRec),
+    currentChapter: generateJungianCurrentChapter(analysis, egoRec, shadowRecs[0], personaRecs[0]),
+  };
+  
+  return story;
+}
+
+/**
+ * Generate myth summary following Jungian principles
+ * Based on: Collective Unconscious, Archetypes, Personal Myth
+ */
+function generateJungianMythSummary(analysis, ego, persona, shadow, feeling) {
+  const paragraphs = [];
+  
+  // Paragraph 1: The Ego and Conscious Identity (Jungian: Ego as center of consciousness)
+  const egoArchetype = ego?.primaryArchetype || 'Unknown';
+  const egoCore = ego?.psychologicalCore || 'your conscious identity';
+  const egoTraits = ego?.discoveredTraits?.slice(0, 3).join(', ') || 'your primary traits';
+  const egoArc = ego?.arcType || 'Hero';
+  const egoStage = ego?.arcStage || 'Beginning';
+  
+  paragraphs.push(
+    `In the depths of the collective unconscious—that vast reservoir of archetypal patterns shared by all humanity—your personal myth begins to take shape. ${ego.name}, as the ${egoArchetype} archetype, stands at the threshold of consciousness, representing your ego—the center of your conscious identity. According to Jungian psychology, the ego is not the whole of the psyche, but the part that says "I am." ${egoCore}—this is what the recognition engine has discovered about ${ego.name}'s role in your psychological landscape. The ${egoArc} archetype at the ${egoStage} stage reveals ${egoTraits} as the foundation of your conscious experience.`
+  );
+  
+  // Paragraph 2: The Persona (Jungian: The mask we wear)
+  const personaNames = persona.map(p => p.name).join(' and ');
+  const personaPattern = persona[0]?.relationalPattern || 'social adaptation';
+  const personaTraits = persona[0]?.discoveredTraits?.slice(0, 2).join(' and ') || 'adaptability';
+  const personaCost = persona[0]?.coreWounds?.[0] || 'the cost of adaptation';
+  
+  paragraphs.push(
+    `Yet Jung teaches us that the ego is only one layer. Behind it lies the persona—the mask you present to the world. ${personaNames} represent this persona layer, the necessary adaptation to social reality. This is not falsehood, but a functional necessity: the persona allows you to navigate the world while protecting your more vulnerable aspects. ${personaPattern}—this is how ${personaNames} function in your psychological structure. The persona carries ${personaTraits}, but also ${personaCost}. In Jungian terms, the persona is essential for social functioning, but over-identification with it leads to alienation from the true self.`
+  );
+  
+  // Paragraph 3: The Shadow (Jungian: The repressed, denied aspects)
+  const shadowNames = shadow.map(s => s.name).join(' and ');
+  const shadowElements = shadow[0]?.shadowElements?.slice(0, 3).join(', ') || 'repressed aspects';
+  const shadowVirtues = shadow[0]?.lightElements?.slice(0, 2).join(' and ') || 'hidden gifts';
+  const shadowArc = shadow[0]?.arcType || 'Shadow';
+  const shadowStage = shadow[0]?.arcStage || 'Confrontation';
+  
+  paragraphs.push(
+    `But in the depths of the unconscious, where consciousness fears to tread, ${shadowNames} dwell—your shadow. In Jungian psychology, the shadow contains everything the conscious ego has rejected, denied, or repressed. ${shadowElements}—these are what you have cast into darkness, not because they are evil, but because they felt too dangerous, too unacceptable, too raw for conscious integration. Yet Jung's great insight is that the shadow also contains gold: ${shadowVirtues}. The ${shadowArc} archetype at the ${shadowStage} stage represents this confrontation with what you have denied. The shadow is not your enemy, but a teacher—the part of yourself that holds the key to wholeness.`
+  );
+  
+  // Paragraph 4: The Anima/Animus (Jungian: The contrasexual archetype)
+  const feelingName = feeling?.name || 'Unknown';
+  const feelingArchetype = feeling?.primaryArchetype || 'Anima/Animus';
+  const feelingTraits = feeling?.discoveredTraits?.slice(0, 2).join(' and ') || 'emotional depth';
+  const feelingRelational = feeling?.relationalPattern || 'deep connection';
+  
+  paragraphs.push(
+    `Jung also identified the anima (in men) or animus (in women)—the contrasexual archetype that represents the unconscious feminine or masculine aspects. ${feelingName} embodies this function in your psyche, the ${feelingArchetype} that guides your feeling function. This archetype carries ${feelingTraits} and enables ${feelingRelational}. In Jungian terms, the anima/animus serves as a bridge to the deeper layers of the unconscious, often appearing in dreams, fantasies, and projections onto others. ${feelingName} represents not just emotional intelligence, but the capacity to connect with the numinous, the sacred dimension of experience.`
+  );
+  
+  // Paragraph 5: Individuation and Wholeness (Jungian: The goal of psychological development)
+  const tensions = analysis.tensions;
+  const integrations = analysis.integrations;
+  const discoveries = analysis.discoveries;
+  const surprising = discoveries.find(d => d.surprising) || discoveries[0];
+  
+  paragraphs.push(
+    `The journey toward wholeness—what Jung called individuation—is not the elimination of these parts, but their integration. ${tensions.length > 0 ? `The tension between ${tensions[0].characters?.join(' and ') || 'these archetypes'}—${tensions[0].dynamic || 'this dynamic tension'}—is not a problem to solve, but the engine of psychological development. ` : ''}${integrations.length > 0 ? `The integration of ${integrations[0].characters?.join(' and ') || 'these aspects'}—${integrations[0].potential || 'this integration potential'}—represents the path forward. ` : ''}${surprising ? `Here is what may surprise you: ${surprising.insight}. ` : ''}This is your personal myth, emerging from the collective unconscious, shaped by your unique character choices and psychological structure. The narrative engine has generated this specifically for you, based on deep Jungian analysis of your character landscape.`
+  );
+  
+  return paragraphs.join('\n\n');
+}
+
+/**
+ * Generate central tension following Jungian principles
+ * Based on: Ego-Shadow tension, Persona-Authentic Self tension
+ */
+function generateJungianCentralTension(analysis, ego, persona, shadow) {
+  const egoName = ego?.name || 'Your ego';
+  const egoArchetype = ego?.primaryArchetype || 'Unknown';
+  const personaName = persona?.name || 'Your persona';
+  const personaPattern = persona?.relationalPattern || 'social adaptation';
+  const shadowName = shadow?.name || 'Your shadow';
+  const shadowElements = shadow?.shadowElements?.slice(0, 2).join(' and ') || 'repressed aspects';
+  const shadowArc = shadow?.arcType || 'Shadow';
+  
+  const tensions = analysis.tensions;
+  const dynamics = analysis.dynamics;
+  const egoShadowDynamic = dynamics.find(d => d.type === 'ego-shadow-dynamic');
+  
+  let tensionText = '';
+  
+  if (egoShadowDynamic) {
+    tensionText = egoShadowDynamic.description;
+  } else if (tensions.length > 0) {
+    tensionText = tensions[0].dynamic;
+  } else {
+    tensionText = `The eternal tension between ${egoName}'s ${egoArchetype} identity (the conscious ego) and ${shadowName}'s ${shadowArc} shadow (the repressed unconscious) creates the central dynamic of your psychological journey.`;
+  }
+  
+  const insight = egoShadowDynamic?.insight || 
+    `In Jungian terms, this tension between consciousness (${egoName}) and the unconscious (${shadowName}) is not pathological, but essential. The ego must maintain its structure while the shadow demands recognition. ${personaName} represents the bridge—the ${personaPattern} that allows you to function in the world while the deeper work of integration occurs. The shadow holds ${shadowElements}, aspects you have denied but which contain the key to wholeness. This tension is the engine of individuation—the process of becoming who you truly are.`;
+  
+  return `${tensionText} ${insight}`;
+}
+
+/**
+ * Generate guiding sentence following Jungian principles
+ * Based on: Individuation, Integration, Wholeness
+ */
+function generateJungianGuidingSentence(analysis, ego, shadow, shadowVirtue) {
+  const egoName = ego?.name || 'Your ego';
+  const egoArchetype = ego?.primaryArchetype || 'Unknown';
+  const shadowName = shadow?.name || 'Your shadow';
+  const shadowVirtueName = shadowVirtue?.name || shadowName;
+  const shadowVirtues = shadowVirtue?.lightElements?.slice(0, 2).join(' and ') || 
+                       shadow?.lightElements?.slice(0, 2).join(' and ') || 
+                       'hidden gifts';
+  
+  const integrations = analysis.integrations;
+  const integration = integrations.find(i => 
+    i.characters?.includes(egoName) && i.characters?.includes(shadowName)
+  );
+  
+  if (integration) {
+    return integration.insight;
+  }
+  
+  return `Let ${egoName}'s ${egoArchetype} energy guide your conscious choices, while allowing ${shadowName}'s wisdom to emerge from the depths. The path of individuation requires both: the structure of the ego and the transformative power of the shadow. Within ${shadowVirtueName} lies ${shadowVirtues}—the gold hidden in the shadow that, when integrated, leads to wholeness. This is not about becoming perfect, but about becoming whole—integrating all aspects of yourself, conscious and unconscious, light and shadow.`;
+}
+
+/**
+ * Generate north star scene following Jungian principles
+ * Based on: The Self (Jung's concept of wholeness), Integration
+ */
+function generateJungianNorthStarScene(analysis, ego, persona, shadow, feeling) {
+  const egoName = ego?.name || 'Your ego';
+  const personaName = persona?.name || 'Your persona';
+  const personaCompensation = persona?.compensations?.[0] || 'social acceptance';
+  const shadowName = shadow?.name || 'Your shadow';
+  const shadowVirtue = shadow?.lightElements?.[0] || 'authentic truth';
+  const shadowCost = shadow?.coreWounds?.[0] || 'the courage to face what you have denied';
+  const feelingName = feeling?.name || 'Your feeling function';
+  
+  return `Imagine a moment suspended in time, a threshold between worlds: ${egoName} stands at the crossroads where consciousness meets the unconscious. Before you, two paths diverge. The familiar path of ${personaName}'s persona offers ${personaCompensation}—the comfort of social belonging, the safety of the mask. The shadow path of ${shadowName} promises ${shadowVirtue} but demands ${shadowCost}. In this moment, you do not choose one or the other, but both—integrating the persona's social wisdom with the shadow's raw truth, the ego's structure with the unconscious's depth. ${feelingName} serves as the bridge, the feeling function that connects these realms. This is the vision of the Self—Jung's concept of wholeness, where all aspects of the psyche are integrated. Not perfection, but completeness. Not the elimination of conflict, but the capacity to hold tension creatively. This is your north star—the recognition that you are both ${egoName} and ${shadowName}, both persona and authentic self, both individual and part of the collective.`;
+}
+
+/**
+ * Generate current chapter following Jungian principles
+ * Based on: Life stages, Individuation process, Current psychological state
+ */
+function generateJungianCurrentChapter(analysis, ego, shadow, persona) {
+  const egoName = ego?.name || 'Your ego';
+  const egoStage = ego?.arcStage || 'Beginning';
+  const egoCost = ego?.coreWounds?.[0] || 'old patterns';
+  const egoCompensations = ego?.coreGifts?.slice(0, 2).join(' and ') || 'your gifts';
+  
+  const shadowName = shadow?.name || 'Your shadow';
+  const shadowStage = shadow?.arcStage || 'Confrontation';
+  const shadowDemand = shadow?.arcTension || 'demands recognition';
+  
+  const personaName = persona?.name || 'Your persona';
+  const personaCost = persona?.coreWounds?.[0] || 'emotional expense';
+  
+  const developmentalArc = analysis.psychologicalProfile?.developmentalArc;
+  const currentStage = developmentalArc?.currentStage || egoStage;
+  const direction = developmentalArc?.direction || 'Integration';
+  
+  return `You stand now in a particular chapter of your individuation journey—the process of becoming who you truly are. ${egoName} is at the ${egoStage} stage, carrying the weight of conscious identity. Yet ${egoCost} no longer serve—the patterns that once protected you now constrain you. ${shadowName} is at the ${shadowStage} stage, and ${shadowDemand}. The persona of ${personaName} has served its function, but ${personaCost} becomes too high. This is not a crisis, but an evolution—a necessary shedding of old skin to make room for new growth. What must be preserved is ${egoCompensations}—the gifts of your ego structure. What must be released is the over-identification with persona and the denial of shadow. The direction is ${direction}—moving toward wholeness, toward the Self. This chapter is specific to your psychological landscape, shaped by your character choices and the archetypal patterns they reveal.`;
+}
+
+/**
+ * Generate identification content following Jungian principles
+ */
+export function generateJungianIdentification(analysis, classification, characters) {
+  const recognitions = analysis.characters;
+  
+  const getRecognition = (name) => 
+    recognitions.find(r => r.name === name || r.name.toLowerCase() === name.toLowerCase()) ||
+    recognitions[0];
+  
+  const egoRec = getRecognition(classification.ego[0]);
+  const personaRecs = classification.persona.map(name => getRecognition(name));
+  const shadowRecs = classification.shadow.map(name => getRecognition(name));
+  const feelingRec = getRecognition(classification.feelingFunction[0]);
+  const erosRec = getRecognition(classification.erosAxis[0]);
+  const shadowVirtueRec = getRecognition(classification.shadowVirtue[0] || classification.shadow[0]);
+  
+  return {
+    ego: generateJungianArchetypeBlock(egoRec, 'Ego', 'The center of consciousness, the "I" that says "I am"', analysis),
+    persona: generateJungianPersonaBlock(personaRecs, analysis),
+    shadow: generateJungianShadowBlock(shadowRecs, analysis),
+    shadowVirtue: generateJungianArchetypeBlock(shadowVirtueRec, 'Shadow Virtue', 'The gold hidden in the shadow', analysis),
+    feelingFunction: generateJungianArchetypeBlock(feelingRec, 'Feeling Function (Anima/Animus)', 'The contrasexual archetype, bridge to the unconscious', analysis),
+    erosAxis: generateJungianArchetypeBlock(erosRec, 'Eros Axis', 'The capacity for connection, intimacy, and relational depth', analysis),
+    moralOrientation: generateJungianMoralOrientation(egoRec, analysis),
+  };
+}
+
+function generateJungianArchetypeBlock(recognition, title, jungianConcept, analysis) {
+  const name = recognition?.name || 'Unknown';
+  const archetype = recognition?.primaryArchetype || 'Unknown';
+  const core = recognition?.psychologicalCore || 'your psychological core';
+  const traits = recognition?.discoveredTraits?.slice(0, 3).join(', ') || 'your traits';
+  const arc = recognition?.arcType || 'Unknown';
+  const stage = recognition?.arcStage || 'Unknown';
+  const energy = recognition?.energySignature || 'your energy';
+  const wounds = recognition?.coreWounds?.slice(0, 2).join(' and ') || 'challenges';
+  const gifts = recognition?.coreGifts?.slice(0, 2).join(' and ') || 'gifts';
+  
+  return {
+    title: `${title} — ${name}`,
+    summary: `In Jungian terms, ${name} represents ${jungianConcept}. The recognition engine has identified ${name} as the ${archetype} archetype, revealing ${core}. This is not a generic assignment—it's based on deep analysis of this character's position, traits, and relationship to your other choices.`,
+    characters: [name],
+    details: `The ${archetype} archetype at the ${stage} stage of the ${arc} arc. ${name} embodies ${energy}, carrying ${traits}. In your psychological structure, this archetype holds both ${wounds} and ${gifts}. The recognition engine discovered these aspects through analysis of ${name}'s role in your character landscape. This is specific to YOUR choice of "${name}"—the narrative engine has generated this based on what it discovered about this character in your psychological system.`,
+  };
+}
+
+function generateJungianPersonaBlock(personaRecs, analysis) {
+  const names = personaRecs.map(r => r.name).join(' and ');
+  const pattern = personaRecs[0]?.relationalPattern || 'social adaptation';
+  const traits = personaRecs[0]?.discoveredTraits?.slice(0, 2).join(' and ') || 'adaptability';
+  const cost = personaRecs[0]?.coreWounds?.[0] || 'emotional expense';
+  const compensation = personaRecs[0]?.compensations?.[0] || 'social functionality';
+  
+  return {
+    title: `Persona — ${names}`,
+    summary: `In Jungian psychology, the persona is the mask you present to the world—not false, but necessary for social functioning. ${names} represent this persona layer in your psyche, the ${pattern} that allows you to navigate social reality.`,
+    characters: personaRecs.map(r => r.name),
+    details: `${names} embody the persona function—the necessary adaptation to social expectations. This mask carries ${traits}, allowing you to function in the world while protecting your more vulnerable aspects. The cost is ${cost}, but the compensation is ${compensation}. In Jungian terms, the persona is essential, but over-identification with it leads to alienation from the true self. The analysis engine has determined this based on how ${names} function in your psychological landscape.`,
+  };
+}
+
+function generateJungianShadowBlock(shadowRecs, analysis) {
+  const names = shadowRecs.map(r => r.name).join(' and ');
+  const elements = shadowRecs[0]?.shadowElements?.slice(0, 3).join(', ') || 'repressed aspects';
+  const allElements = shadowRecs[0]?.shadowElements?.join(', ') || 'what you have repressed';
+  const virtues = shadowRecs[0]?.lightElements?.slice(0, 2).join(' and ') || 'hidden gifts';
+  const arc = shadowRecs[0]?.arcType || 'Shadow';
+  const stage = shadowRecs[0]?.arcStage || 'Confrontation';
+  
+  return {
+    title: `Shadow — ${names}`,
+    summary: `In Jungian psychology, the shadow contains everything the conscious ego has rejected, denied, or repressed. ${names} represent this shadow layer, holding ${elements} that you have cast into darkness.`,
+    characters: shadowRecs.map(r => r.name),
+    details: `${names} embody the shadow archetype at the ${stage} stage of the ${arc} arc. They hold ${allElements}—not because these are evil, but because they felt too dangerous, too unacceptable, too raw for conscious integration. Yet Jung's great insight is that the shadow also contains gold: ${virtues}. The shadow is not your enemy, but a teacher—the part of yourself that holds the key to wholeness. Integration of the shadow is essential for individuation—the process of becoming whole. The analysis engine has discovered this through deep analysis of how ${names} function in your psychological structure.`,
+  };
+}
+
+function generateJungianMoralOrientation(egoRec, analysis) {
+  const name = egoRec?.name || 'Your ego';
+  const framework = egoRec?.decisionFramework || 'your decision framework';
+  const values = egoRec?.valueHierarchy?.join(', ') || 'your values';
+  const compass = egoRec?.moralCompass || 'your moral compass';
+  
+  return {
+    title: 'Moral Orientation / Truth Axis',
+    summary: `Your moral orientation reflects how you determine truth when external frameworks fail, guided by ${name}'s ${framework}.`,
+    characters: [name],
+    details: `In Jungian terms, your moral orientation represents the ego's capacity to maintain integrity when collective values break down. ${name} operates with ${framework}, guided by ${values}. Your ${compass} helps you discern truth when rules fail, authority is incompetent, or consensus is fear-based. This creates the potential for moral loneliness—standing in truth when others choose comfort. Yet this is also where your deepest integrity lives—in the willingness to see clearly, even when it means standing alone. The analysis engine has determined this based on ${name}'s role in your psychological structure.`,
+  };
+}

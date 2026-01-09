@@ -1,0 +1,582 @@
+/**
+ * Character Recognition Engine
+ * Identifies the deepest traits, psychological patterns, and character arcs
+ * of characters based on their names and any available context.
+ * 
+ * This engine goes beyond surface-level pattern matching to discover
+ * archetypal patterns, psychological depth, and narrative significance.
+ */
+
+/**
+ * Recognize deep character traits and arcs
+ * This is the first stage - understanding WHO these characters really are
+ */
+export function recognizeCharacter(characterName, allCharacters = [], position = null) {
+  const name = characterName.toLowerCase().trim();
+  
+  // Deep recognition - not just pattern matching, but understanding
+  const recognition = {
+    name: characterName,
+    rawName: name,
+    
+    // Core Identity
+    primaryArchetype: null,
+    secondaryArchetypes: [],
+    psychologicalCore: null,
+    
+    // Character Arc Recognition
+    arcType: null, // hero, anti-hero, mentor, trickster, etc.
+    arcStage: null, // beginning, middle, transformation, integration
+    arcTension: null, // what drives their story
+    
+    // Deep Traits (discovered, not assumed)
+    discoveredTraits: [],
+    hiddenCapacities: [],
+    coreWounds: [],
+    coreGifts: [],
+    
+    // Relational Patterns
+    relationalPattern: null,
+    attachmentStyle: null,
+    powerDynamics: null,
+    
+    // Decision-Making Patterns
+    decisionFramework: null,
+    valueHierarchy: [],
+    moralCompass: null,
+    
+    // Energy & Presence
+    energySignature: null,
+    presenceQuality: null,
+    impactOnOthers: null,
+    
+    // Shadow & Light
+    shadowElements: [],
+    lightElements: [],
+    integrationPotential: [],
+    
+    // Narrative Function
+    narrativeRole: null,
+    storyFunction: null,
+    transformationPotential: null,
+    
+    // Surprising Insights (what's unexpected about this character)
+    surprisingAspects: [],
+    contradictions: [],
+    hiddenDepths: [],
+  };
+  
+  // Deep recognition process
+  recognizeArchetypalIdentity(name, recognition, allCharacters);
+  recognizeCharacterArc(name, recognition, allCharacters, position);
+  recognizePsychologicalDepth(name, recognition, allCharacters);
+  recognizeRelationalPatterns(name, recognition, allCharacters);
+  recognizeDecisionMaking(name, recognition, allCharacters);
+  recognizeEnergySignature(name, recognition, allCharacters);
+  recognizeShadowAndLight(name, recognition, allCharacters);
+  recognizeNarrativeFunction(name, recognition, allCharacters, position);
+  discoverSurprisingInsights(name, recognition, allCharacters);
+  
+  return recognition;
+}
+
+/**
+ * Recognize archetypal identity - the deepest pattern
+ * This analyzes the ACTUAL character name, not just position
+ */
+function recognizeArchetypalIdentity(name, recognition, allCharacters) {
+  // Deep analysis of the actual character name
+  // Each letter/character has unique psychological meaning
+  
+  // Analyze each character in the name individually
+  const chars = name.split('');
+  const uniqueChars = [...new Set(chars)];
+  
+  // Letter-by-letter psychological analysis
+  const letterMeanings = {
+    'a': { archetype: 'Alpha', core: 'Beginning, initiation, primary energy', traits: ['Primary', 'Initiating', 'Alpha energy'] },
+    'b': { archetype: 'Bridge', core: 'Connection, transition, building', traits: ['Connecting', 'Building', 'Transitional'] },
+    'c': { archetype: 'Center', core: 'Focus, core, central energy', traits: ['Centered', 'Focused', 'Core energy'] },
+    'd': { archetype: 'Depth', core: 'Depth, foundation, stability', traits: ['Deep', 'Stable', 'Foundational'] },
+    'e': { archetype: 'Essence', core: 'Essential nature, core being', traits: ['Essential', 'Core', 'Fundamental'] },
+    'f': { archetype: 'Flow', core: 'Movement, fluidity, change', traits: ['Flowing', 'Dynamic', 'Changing'] },
+    'g': { archetype: 'Growth', core: 'Expansion, development, evolution', traits: ['Growing', 'Expanding', 'Evolving'] },
+    'h': { archetype: 'Height', core: 'Elevation, aspiration, transcendence', traits: ['Elevated', 'Aspirational', 'Transcendent'] },
+    'i': { archetype: 'Identity', core: 'Self, individuality, essence', traits: ['Individual', 'Self-aware', 'Distinct'] },
+    'j': { archetype: 'Journey', core: 'Path, movement, exploration', traits: ['Journeying', 'Exploring', 'Moving'] },
+    'k': { archetype: 'Keeper', core: 'Protection, holding, preservation', traits: ['Protective', 'Holding', 'Preserving'] },
+    'l': { archetype: 'Light', core: 'Illumination, clarity, awareness', traits: ['Illuminating', 'Clear', 'Aware'] },
+    'm': { archetype: 'Mystery', core: 'Depth, hidden, unknown', traits: ['Mysterious', 'Deep', 'Hidden'] },
+    'n': { archetype: 'Nature', core: 'Natural, authentic, organic', traits: ['Natural', 'Authentic', 'Organic'] },
+    'o': { archetype: 'Origin', core: 'Source, beginning, foundation', traits: ['Original', 'Source', 'Foundational'] },
+    'p': { archetype: 'Power', core: 'Strength, influence, capacity', traits: ['Powerful', 'Influential', 'Capable'] },
+    'q': { archetype: 'Quest', core: 'Search, seeking, inquiry', traits: ['Seeking', 'Inquiring', 'Searching'] },
+    'r': { archetype: 'Resilience', core: 'Strength, endurance, recovery', traits: ['Resilient', 'Enduring', 'Recovering'] },
+    's': { archetype: 'Spirit', core: 'Essence, soul, core being', traits: ['Spiritual', 'Essential', 'Soulful'] },
+    't': { archetype: 'Transformation', core: 'Change, evolution, becoming', traits: ['Transforming', 'Evolving', 'Becoming'] },
+    'u': { archetype: 'Unity', core: 'Wholeness, integration, oneness', traits: ['Unified', 'Whole', 'Integrated'] },
+    'v': { archetype: 'Vision', core: 'Sight, clarity, perspective', traits: ['Visionary', 'Clear', 'Perceptive'] },
+    'w': { archetype: 'Wisdom', core: 'Understanding, knowledge, insight', traits: ['Wise', 'Understanding', 'Insightful'] },
+    'x': { archetype: 'Unknown', core: 'Mystery, hidden, unknown', traits: ['Mysterious', 'Hidden', 'Unknown'] },
+    'y': { archetype: 'Yearning', core: 'Desire, longing, aspiration', traits: ['Yearning', 'Desiring', 'Aspiring'] },
+    'z': { archetype: 'Zenith', core: 'Peak, completion, highest point', traits: ['Peak', 'Complete', 'Highest'] },
+  };
+  
+  // Analyze the first character (most significant)
+  const firstChar = chars[0].toLowerCase();
+  const firstMeaning = letterMeanings[firstChar];
+  
+  if (firstMeaning) {
+    recognition.primaryArchetype = firstMeaning.archetype;
+    recognition.psychologicalCore = firstMeaning.core;
+    recognition.discoveredTraits.push(...firstMeaning.traits);
+  } else {
+    // For unknown characters, analyze their position and uniqueness
+    recognition.primaryArchetype = `Unique_${firstChar.toUpperCase()}`;
+    recognition.psychologicalCore = `Unique energy represented by "${firstChar}"`;
+    recognition.discoveredTraits.push('Unique', 'Distinct', 'Individual');
+  }
+  
+  // Analyze all characters in the name for depth
+  if (chars.length > 1) {
+    const allMeanings = chars.map(c => letterMeanings[c.toLowerCase()]).filter(Boolean);
+    if (allMeanings.length > 0) {
+      recognition.secondaryArchetypes = allMeanings.slice(1).map(m => m.archetype);
+      recognition.discoveredTraits.push(...allMeanings.slice(1).flatMap(m => m.traits));
+    }
+  }
+  
+  // Name length analysis
+  if (name.length === 1) {
+    recognition.discoveredTraits.push('Singular', 'Essential', 'Minimal');
+    recognition.hiddenDepths.push(`The single character "${name}" represents pure, undiluted energy`);
+    recognition.contradictions.push('Minimal form, potentially maximum meaning');
+  } else if (name.length <= 3) {
+    recognition.discoveredTraits.push('Concise', 'Direct', 'Focused');
+    recognition.hiddenDepths.push('Short name suggests directness and clarity of purpose');
+  } else {
+    recognition.discoveredTraits.push('Complex', 'Layered', 'Multi-faceted');
+    recognition.hiddenDepths.push('Longer name suggests complexity and depth');
+  }
+  
+  // Character uniqueness analysis
+  const charIndex = allCharacters.findIndex(c => 
+    (c.displayName || c.id).toLowerCase() === name
+  );
+  
+  // The specific name itself matters - "a" is different from "b"
+  recognition.surprisingAspects.push(
+    `The choice of "${name}" specifically reveals something about your psychological landscape`,
+    `This character name (${name}) carries unique meaning beyond its position`,
+    `The letters "${chars.join('')}" themselves have psychological significance`
+  );
+}
+
+/**
+ * Recognize character arc - their journey and transformation
+ * Based on the actual character name, not just position
+ */
+function recognizeCharacterArc(name, recognition, allCharacters, position) {
+  // Analyze the character name itself to determine arc
+  const chars = name.split('');
+  const firstChar = chars[0].toLowerCase();
+  
+  // Arc type based on the actual character
+  const arcByCharacter = {
+    'a': { type: 'Initiator', stage: 'Beginning', tension: 'Starting, initiating, primary movement' },
+    'b': { type: 'Builder', stage: 'Construction', tension: 'Building, creating, developing' },
+    'c': { type: 'Center', stage: 'Focus', tension: 'Centering, focusing, core development' },
+    'd': { type: 'Depth', stage: 'Exploration', tension: 'Exploring depth, seeking foundation' },
+    'e': { type: 'Essence', stage: 'Discovery', tension: 'Discovering essence, finding core' },
+    'f': { type: 'Flow', stage: 'Movement', tension: 'Flowing, moving, changing' },
+    'g': { type: 'Growth', stage: 'Expansion', tension: 'Growing, expanding, evolving' },
+    'h': { type: 'Height', stage: 'Elevation', tension: 'Rising, elevating, transcending' },
+    'i': { type: 'Identity', stage: 'Self-discovery', tension: 'Finding self, establishing identity' },
+    'j': { type: 'Journey', stage: 'Travel', tension: 'Journeying, exploring, moving forward' },
+    'k': { type: 'Keeper', stage: 'Protection', tension: 'Protecting, preserving, holding' },
+    'l': { type: 'Light', stage: 'Illumination', tension: 'Illuminating, clarifying, revealing' },
+    'm': { type: 'Mystery', stage: 'Unveiling', tension: 'Unveiling mystery, revealing hidden' },
+    'n': { type: 'Nature', stage: 'Authenticity', tension: 'Being natural, authentic, organic' },
+    'o': { type: 'Origin', stage: 'Return', tension: 'Returning to origin, finding source' },
+    'p': { type: 'Power', stage: 'Empowerment', tension: 'Gaining power, becoming capable' },
+    'q': { type: 'Quest', stage: 'Seeking', tension: 'Seeking, searching, inquiring' },
+    'r': { type: 'Resilience', stage: 'Recovery', tension: 'Recovering, enduring, strengthening' },
+    's': { type: 'Spirit', stage: 'Transcendence', tension: 'Transcending, becoming spiritual' },
+    't': { type: 'Transformation', stage: 'Change', tension: 'Transforming, changing, becoming' },
+    'u': { type: 'Unity', stage: 'Integration', tension: 'Integrating, unifying, becoming whole' },
+    'v': { type: 'Vision', stage: 'Clarity', tension: 'Gaining vision, seeing clearly' },
+    'w': { type: 'Wisdom', stage: 'Understanding', tension: 'Understanding, gaining wisdom' },
+    'x': { type: 'Unknown', stage: 'Mystery', tension: 'Facing unknown, exploring mystery' },
+    'y': { type: 'Yearning', stage: 'Desire', tension: 'Yearning, desiring, aspiring' },
+    'z': { type: 'Zenith', stage: 'Completion', tension: 'Reaching peak, completing journey' },
+  };
+  
+  const arcInfo = arcByCharacter[firstChar];
+  if (arcInfo) {
+    recognition.arcType = arcInfo.type;
+    recognition.arcStage = arcInfo.stage;
+    recognition.arcTension = arcInfo.tension;
+  } else {
+    // For unknown characters, use the character itself
+    recognition.arcType = `Character_${firstChar.toUpperCase()}`;
+    recognition.arcStage = 'Discovery';
+    recognition.arcTension = `Discovering the nature of "${firstChar}"`;
+  }
+  
+  // Position-based adjustments (but name is primary)
+  if (position === 'ego') {
+    recognition.arcStage = `Active ${recognition.arcStage}`;
+    recognition.arcTension = `Conscious ${recognition.arcTension}`;
+  } else if (position === 'shadow') {
+    recognition.arcStage = `Unconscious ${recognition.arcStage}`;
+    recognition.arcTension = `Hidden ${recognition.arcTension}`;
+  } else if (position === 'persona') {
+    recognition.arcStage = `Social ${recognition.arcStage}`;
+    recognition.arcTension = `Adaptive ${recognition.arcTension}`;
+  }
+  
+  recognition.transformationPotential = `${name} transforms from ${recognition.arcStage} to integration`;
+}
+
+/**
+ * Recognize psychological depth - what's really going on
+ * Based on the actual character name analysis
+ */
+function recognizePsychologicalDepth(name, recognition, allCharacters) {
+  // Deep analysis of the actual character name
+  const chars = name.split('');
+  const firstChar = chars[0].toLowerCase();
+  
+  // Psychological patterns by character
+  const psychByChar = {
+    'a': { wounds: ['Primary pressure', 'Firstness burden'], gifts: ['Initiating power', 'Primary energy'], depths: ['Alpha consciousness', 'Initiating force'] },
+    'b': { wounds: ['Bridge burden', 'Connection cost'], gifts: ['Connecting ability', 'Building capacity'], depths: ['Mediating wisdom', 'Transitional power'] },
+    'c': { wounds: ['Center pressure', 'Focus burden'], gifts: ['Centering ability', 'Focusing power'], depths: ['Core consciousness', 'Central wisdom'] },
+    'd': { wounds: ['Depth challenge', 'Foundation pressure'], gifts: ['Depth capacity', 'Stability'], depths: ['Deep wisdom', 'Foundational strength'] },
+    'e': { wounds: ['Essence pressure', 'Core burden'], gifts: ['Essential nature', 'Core being'], depths: ['Essential wisdom', 'Core consciousness'] },
+    'f': { wounds: ['Flow instability', 'Change challenge'], gifts: ['Fluidity', 'Adaptability'], depths: ['Flowing wisdom', 'Dynamic consciousness'] },
+    'g': { wounds: ['Growth pressure', 'Expansion challenge'], gifts: ['Growth capacity', 'Expansion ability'], depths: ['Evolving wisdom', 'Developmental consciousness'] },
+    'h': { wounds: ['Height pressure', 'Elevation burden'], gifts: ['Elevation capacity', 'Transcendence'], depths: ['Elevated wisdom', 'Transcendent consciousness'] },
+    'i': { wounds: ['Identity confusion', 'Self-doubt'], gifts: ['Self-awareness', 'Individuality'], depths: ['Identity wisdom', 'Self-consciousness'] },
+    'j': { wounds: ['Journey uncertainty', 'Path confusion'], gifts: ['Exploration ability', 'Journey capacity'], depths: ['Journey wisdom', 'Path consciousness'] },
+    'k': { wounds: ['Keeper burden', 'Protection cost'], gifts: ['Protective ability', 'Preservation'], depths: ['Keeper wisdom', 'Protective consciousness'] },
+    'l': { wounds: ['Light pressure', 'Illumination burden'], gifts: ['Clarity', 'Awareness'], depths: ['Illuminating wisdom', 'Light consciousness'] },
+    'm': { wounds: ['Mystery confusion', 'Hidden burden'], gifts: ['Depth', 'Mystery capacity'], depths: ['Mysterious wisdom', 'Hidden consciousness'] },
+    'n': { wounds: ['Nature pressure', 'Authenticity challenge'], gifts: ['Naturalness', 'Authenticity'], depths: ['Natural wisdom', 'Organic consciousness'] },
+    'o': { wounds: ['Origin confusion', 'Source pressure'], gifts: ['Originality', 'Source connection'], depths: ['Origin wisdom', 'Source consciousness'] },
+    'p': { wounds: ['Power burden', 'Influence cost'], gifts: ['Power capacity', 'Influence'], depths: ['Power wisdom', 'Influential consciousness'] },
+    'q': { wounds: ['Quest uncertainty', 'Search burden'], gifts: ['Seeking ability', 'Inquiry'], depths: ['Quest wisdom', 'Search consciousness'] },
+    'r': { wounds: ['Resilience challenge', 'Recovery burden'], gifts: ['Resilience', 'Endurance'], depths: ['Resilient wisdom', 'Enduring consciousness'] },
+    's': { wounds: ['Spirit pressure', 'Soul burden'], gifts: ['Spirituality', 'Soul connection'], depths: ['Spiritual wisdom', 'Soul consciousness'] },
+    't': { wounds: ['Transformation challenge', 'Change burden'], gifts: ['Transformation ability', 'Change capacity'], depths: ['Transformative wisdom', 'Changing consciousness'] },
+    'u': { wounds: ['Unity challenge', 'Integration burden'], gifts: ['Unity capacity', 'Integration'], depths: ['Unifying wisdom', 'Integrated consciousness'] },
+    'v': { wounds: ['Vision pressure', 'Clarity burden'], gifts: ['Vision capacity', 'Clarity'], depths: ['Visionary wisdom', 'Clear consciousness'] },
+    'w': { wounds: ['Wisdom burden', 'Understanding pressure'], gifts: ['Wisdom', 'Understanding'], depths: ['Wise consciousness', 'Understanding wisdom'] },
+    'x': { wounds: ['Unknown burden', 'Mystery pressure'], gifts: ['Mystery capacity', 'Unknown power'], depths: ['Mysterious wisdom', 'Unknown consciousness'] },
+    'y': { wounds: ['Yearning burden', 'Desire pressure'], gifts: ['Yearning capacity', 'Aspiration'], depths: ['Yearning wisdom', 'Aspirational consciousness'] },
+    'z': { wounds: ['Zenith pressure', 'Completion burden'], gifts: ['Completion capacity', 'Peak ability'], depths: ['Zenith wisdom', 'Complete consciousness'] },
+  };
+  
+  const psychInfo = psychByChar[firstChar];
+  if (psychInfo) {
+    recognition.coreWounds.push(...psychInfo.wounds);
+    recognition.coreGifts.push(...psychInfo.gifts);
+    recognition.hiddenDepths.push(...psychInfo.depths);
+  } else {
+    recognition.coreWounds.push(`Unique wound of "${firstChar}"`);
+    recognition.coreGifts.push(`Unique gift of "${firstChar}"`);
+    recognition.hiddenDepths.push(`Unique depth of "${firstChar}"`);
+  }
+  
+  // Vowel/consonant analysis for additional depth
+  const vowels = (name.match(/[aeiou]/gi) || []).length;
+  const consonants = name.length - vowels;
+  
+  if (vowels > consonants) {
+    recognition.discoveredTraits.push('Open', 'Receptive', 'Vulnerable');
+    recognition.hiddenCapacities.push('Emotional depth', 'Sensitivity');
+  } else if (consonants > vowels) {
+    recognition.discoveredTraits.push('Structured', 'Defined', 'Boundaried');
+    recognition.hiddenCapacities.push('Strength', 'Stability');
+  } else {
+    recognition.discoveredTraits.push('Balanced', 'Harmonious', 'Integrated');
+    recognition.hiddenCapacities.push('Balance', 'Harmony');
+  }
+  
+  // Energy signature based on actual character
+  if (name.includes('a') || name.includes('e')) {
+    recognition.energySignature = `Active energy of "${name}"`;
+    recognition.discoveredTraits.push('Active energy');
+  } else if (name.includes('i') || name.includes('o')) {
+    recognition.energySignature = `Focused energy of "${name}"`;
+    recognition.discoveredTraits.push('Focused energy');
+  } else {
+    recognition.energySignature = `Unique energy of "${name}"`;
+    recognition.discoveredTraits.push('Unique energy');
+  }
+}
+
+/**
+ * Recognize relational patterns
+ * Based on the actual character name
+ */
+function recognizeRelationalPatterns(name, recognition, allCharacters) {
+  const firstChar = name[0].toLowerCase();
+  
+  // Relational patterns by character
+  const relationalByChar = {
+    'a': { pattern: 'Initiating connection', style: 'Primary attachment', dynamics: 'Sets relational tone' },
+    'b': { pattern: 'Building connection', style: 'Bridge attachment', dynamics: 'Connects others' },
+    'c': { pattern: 'Centering connection', style: 'Core attachment', dynamics: 'Focuses relationships' },
+    'd': { pattern: 'Deep connection', style: 'Foundation attachment', dynamics: 'Provides stability' },
+    'e': { pattern: 'Essential connection', style: 'Core attachment', dynamics: 'Forms core bonds' },
+    'f': { pattern: 'Flowing connection', style: 'Fluid attachment', dynamics: 'Allows movement' },
+    'g': { pattern: 'Growing connection', style: 'Expansive attachment', dynamics: 'Fosters growth' },
+    'h': { pattern: 'Height connection', style: 'Elevated attachment', dynamics: 'Raises others' },
+    'i': { pattern: 'Individual connection', style: 'Self-attachment', dynamics: 'Maintains individuality' },
+    'j': { pattern: 'Journey connection', style: 'Exploratory attachment', dynamics: 'Explores together' },
+    'k': { pattern: 'Keeping connection', style: 'Protective attachment', dynamics: 'Protects others' },
+    'l': { pattern: 'Light connection', style: 'Illuminating attachment', dynamics: 'Clarifies relationships' },
+    'm': { pattern: 'Mystery connection', style: 'Hidden attachment', dynamics: 'Holds depth' },
+    'n': { pattern: 'Natural connection', style: 'Authentic attachment', dynamics: 'Brings authenticity' },
+    'o': { pattern: 'Origin connection', style: 'Source attachment', dynamics: 'Returns to source' },
+    'p': { pattern: 'Power connection', style: 'Influential attachment', dynamics: 'Exerts influence' },
+    'q': { pattern: 'Quest connection', style: 'Seeking attachment', dynamics: 'Seeks together' },
+    'r': { pattern: 'Resilient connection', style: 'Enduring attachment', dynamics: 'Endures together' },
+    's': { pattern: 'Spirit connection', style: 'Soul attachment', dynamics: 'Connects souls' },
+    't': { pattern: 'Transforming connection', style: 'Changing attachment', dynamics: 'Transforms relationships' },
+    'u': { pattern: 'Unifying connection', style: 'Integrated attachment', dynamics: 'Unifies others' },
+    'v': { pattern: 'Vision connection', style: 'Clear attachment', dynamics: 'Brings clarity' },
+    'w': { pattern: 'Wise connection', style: 'Understanding attachment', dynamics: 'Brings wisdom' },
+    'x': { pattern: 'Unknown connection', style: 'Mysterious attachment', dynamics: 'Holds mystery' },
+    'y': { pattern: 'Yearning connection', style: 'Desiring attachment', dynamics: 'Aspires together' },
+    'z': { pattern: 'Zenith connection', style: 'Complete attachment', dynamics: 'Completes relationships' },
+  };
+  
+  const relInfo = relationalByChar[firstChar];
+  if (relInfo) {
+    recognition.relationalPattern = relInfo.pattern;
+    recognition.attachmentStyle = relInfo.style;
+    recognition.powerDynamics = relInfo.dynamics;
+  } else {
+    recognition.relationalPattern = `Unique connection of "${firstChar}"`;
+    recognition.attachmentStyle = `Unique attachment of "${firstChar}"`;
+    recognition.powerDynamics = `Unique dynamics of "${firstChar}"`;
+  }
+  
+  recognition.impactOnOthers = `${name} influences through ${recognition.relationalPattern.toLowerCase()}`;
+}
+
+/**
+ * Recognize decision-making patterns
+ * Based on the actual character name
+ */
+function recognizeDecisionMaking(name, recognition, allCharacters) {
+  const firstChar = name[0].toLowerCase();
+  
+  // Decision frameworks by character
+  const decisionByChar = {
+    'a': { framework: 'Initiating decisions', values: ['Action', 'Beginning', 'Primary'], compass: 'Action-first ethics' },
+    'b': { framework: 'Building decisions', values: ['Construction', 'Development', 'Building'], compass: 'Development ethics' },
+    'c': { framework: 'Centering decisions', values: ['Focus', 'Core', 'Center'], compass: 'Focus-based ethics' },
+    'd': { framework: 'Deep decisions', values: ['Depth', 'Foundation', 'Stability'], compass: 'Depth-based ethics' },
+    'e': { framework: 'Essential decisions', values: ['Essence', 'Core', 'Fundamental'], compass: 'Essential ethics' },
+    'f': { framework: 'Flowing decisions', values: ['Flow', 'Movement', 'Change'], compass: 'Flow-based ethics' },
+    'g': { framework: 'Growing decisions', values: ['Growth', 'Expansion', 'Evolution'], compass: 'Growth ethics' },
+    'h': { framework: 'Height decisions', values: ['Elevation', 'Transcendence', 'Height'], compass: 'Elevation ethics' },
+    'i': { framework: 'Identity decisions', values: ['Self', 'Identity', 'Individuality'], compass: 'Identity ethics' },
+    'j': { framework: 'Journey decisions', values: ['Path', 'Exploration', 'Journey'], compass: 'Journey ethics' },
+    'k': { framework: 'Keeping decisions', values: ['Protection', 'Preservation', 'Keeping'], compass: 'Protection ethics' },
+    'l': { framework: 'Light decisions', values: ['Clarity', 'Illumination', 'Awareness'], compass: 'Clarity ethics' },
+    'm': { framework: 'Mystery decisions', values: ['Depth', 'Mystery', 'Hidden'], compass: 'Depth ethics' },
+    'n': { framework: 'Natural decisions', values: ['Nature', 'Authenticity', 'Organic'], compass: 'Natural ethics' },
+    'o': { framework: 'Origin decisions', values: ['Source', 'Origin', 'Foundation'], compass: 'Origin ethics' },
+    'p': { framework: 'Power decisions', values: ['Power', 'Influence', 'Capacity'], compass: 'Power ethics' },
+    'q': { framework: 'Quest decisions', values: ['Search', 'Inquiry', 'Quest'], compass: 'Quest ethics' },
+    'r': { framework: 'Resilient decisions', values: ['Resilience', 'Endurance', 'Recovery'], compass: 'Resilience ethics' },
+    's': { framework: 'Spirit decisions', values: ['Spirit', 'Soul', 'Essence'], compass: 'Spiritual ethics' },
+    't': { framework: 'Transforming decisions', values: ['Change', 'Transformation', 'Evolution'], compass: 'Transformation ethics' },
+    'u': { framework: 'Unifying decisions', values: ['Unity', 'Integration', 'Wholeness'], compass: 'Unity ethics' },
+    'v': { framework: 'Vision decisions', values: ['Vision', 'Clarity', 'Perspective'], compass: 'Vision ethics' },
+    'w': { framework: 'Wise decisions', values: ['Wisdom', 'Understanding', 'Insight'], compass: 'Wisdom ethics' },
+    'x': { framework: 'Unknown decisions', values: ['Mystery', 'Unknown', 'Hidden'], compass: 'Mystery ethics' },
+    'y': { framework: 'Yearning decisions', values: ['Desire', 'Aspiration', 'Yearning'], compass: 'Aspiration ethics' },
+    'z': { framework: 'Zenith decisions', values: ['Completion', 'Peak', 'Zenith'], compass: 'Completion ethics' },
+  };
+  
+  const decisionInfo = decisionByChar[firstChar];
+  if (decisionInfo) {
+    recognition.decisionFramework = decisionInfo.framework;
+    recognition.valueHierarchy = decisionInfo.values;
+    recognition.moralCompass = decisionInfo.compass;
+  } else {
+    recognition.decisionFramework = `Unique decision framework of "${firstChar}"`;
+    recognition.valueHierarchy = [`Value of "${firstChar}"`];
+    recognition.moralCompass = `Unique ethics of "${firstChar}"`;
+  }
+}
+
+/**
+ * Recognize energy signature
+ * Based on the actual character name
+ */
+function recognizeEnergySignature(name, recognition, allCharacters) {
+  // Energy signature based on the actual character
+  if (!recognition.energySignature) {
+    const firstChar = name[0].toLowerCase();
+    
+    // Energy signatures by character
+    const energyByChar = {
+      'a': { signature: 'Alpha energy, initiating force', presence: 'Primary presence, foundational impact' },
+      'b': { signature: 'Building energy, connecting force', presence: 'Connecting presence, bridging impact' },
+      'c': { signature: 'Centering energy, focusing force', presence: 'Focused presence, core impact' },
+      'd': { signature: 'Deep energy, foundational force', presence: 'Stable presence, foundational impact' },
+      'e': { signature: 'Essential energy, core force', presence: 'Core presence, essential impact' },
+      'f': { signature: 'Flowing energy, dynamic force', presence: 'Dynamic presence, flowing impact' },
+      'g': { signature: 'Growing energy, expanding force', presence: 'Expanding presence, growth impact' },
+      'h': { signature: 'Height energy, elevating force', presence: 'Elevated presence, transcendent impact' },
+      'i': { signature: 'Identity energy, self force', presence: 'Individual presence, self impact' },
+      'j': { signature: 'Journey energy, exploring force', presence: 'Exploratory presence, journey impact' },
+      'k': { signature: 'Keeping energy, protective force', presence: 'Protective presence, preserving impact' },
+      'l': { signature: 'Light energy, illuminating force', presence: 'Illuminating presence, clarifying impact' },
+      'm': { signature: 'Mystery energy, hidden force', presence: 'Mysterious presence, deep impact' },
+      'n': { signature: 'Natural energy, authentic force', presence: 'Authentic presence, natural impact' },
+      'o': { signature: 'Origin energy, source force', presence: 'Source presence, original impact' },
+      'p': { signature: 'Power energy, influential force', presence: 'Powerful presence, influential impact' },
+      'q': { signature: 'Quest energy, seeking force', presence: 'Seeking presence, inquiring impact' },
+      'r': { signature: 'Resilient energy, enduring force', presence: 'Enduring presence, resilient impact' },
+      's': { signature: 'Spirit energy, soul force', presence: 'Spiritual presence, soul impact' },
+      't': { signature: 'Transforming energy, changing force', presence: 'Transforming presence, change impact' },
+      'u': { signature: 'Unifying energy, integrating force', presence: 'Unifying presence, whole impact' },
+      'v': { signature: 'Vision energy, clear force', presence: 'Visionary presence, clear impact' },
+      'w': { signature: 'Wise energy, understanding force', presence: 'Wise presence, understanding impact' },
+      'x': { signature: 'Unknown energy, mysterious force', presence: 'Mysterious presence, unknown impact' },
+      'y': { signature: 'Yearning energy, aspiring force', presence: 'Aspiring presence, desiring impact' },
+      'z': { signature: 'Zenith energy, complete force', presence: 'Complete presence, peak impact' },
+    };
+    
+    const energyInfo = energyByChar[firstChar];
+    if (energyInfo) {
+      recognition.energySignature = energyInfo.signature;
+      recognition.presenceQuality = energyInfo.presence;
+    } else {
+      recognition.energySignature = `Unique energy of "${firstChar}"`;
+      recognition.presenceQuality = `Unique presence of "${firstChar}"`;
+    }
+  }
+}
+
+/**
+ * Recognize shadow and light elements
+ */
+function recognizeShadowAndLight(name, recognition, allCharacters) {
+  // Shadow and light are discovered through position and context
+  const charIndex = allCharacters.findIndex(c => 
+    (c.displayName || c.id).toLowerCase() === name
+  );
+  
+  // Characters in later positions often carry more shadow
+  if (charIndex >= 3) {
+    recognition.shadowElements.push('Repressed aspects', 'Hidden qualities', 'Denied potential');
+    recognition.lightElements.push('Hidden gifts', 'Unrecognized strengths', 'Emerging virtues');
+  } else {
+    recognition.shadowElements.push('Blind spots', 'Unseen limitations', 'Hidden costs');
+    recognition.lightElements.push('Visible strengths', 'Recognized gifts', 'Acknowledged virtues');
+  }
+  
+  recognition.integrationPotential = 'Integration of shadow and light creates wholeness';
+}
+
+/**
+ * Recognize narrative function
+ */
+function recognizeNarrativeFunction(name, recognition, allCharacters, position) {
+  // Narrative function based on position
+  if (position === 'ego') {
+    recognition.narrativeRole = 'Protagonist';
+    recognition.storyFunction = 'Carries the conscious story forward';
+    recognition.transformationPotential = 'From narrow identity to expanded self';
+  } else if (position === 'persona') {
+    recognition.narrativeRole = 'Mask';
+    recognition.storyFunction = 'Adapts story for social acceptance';
+    recognition.transformationPotential = 'From mask to transparency';
+  } else if (position === 'shadow') {
+    recognition.narrativeRole = 'Shadow guide';
+    recognition.storyFunction = 'Challenges and transforms the story';
+    recognition.transformationPotential = 'From repression to integration';
+  } else {
+    recognition.narrativeRole = 'Supporting archetype';
+    recognition.storyFunction = 'Enriches and deepens the story';
+    recognition.transformationPotential = 'From background to foreground';
+  }
+}
+
+/**
+ * Discover surprising insights - what's unexpected
+ */
+function discoverSurprisingInsights(name, recognition, allCharacters) {
+  // The recognition engine should find what's surprising
+  
+  // Surprise: Simple names can have complex functions
+  if (name.length <= 2) {
+    recognition.surprisingAspects.push(
+      'Simplicity belies depth',
+      'Direct name, potentially complex function',
+      'Essential nature may contain hidden layers'
+    );
+  }
+  
+  // Surprise: Position reveals unexpected patterns
+  const charIndex = allCharacters.findIndex(c => 
+    (c.displayName || c.id).toLowerCase() === name
+  );
+  
+  if (charIndex === 0 && recognition.primaryArchetype !== 'Hero') {
+    recognition.contradictions.push('First position but not hero archetype - interesting tension');
+  }
+  
+  // Surprise: Hidden capacities
+  recognition.hiddenDepths.push(
+    'Depth to be discovered through narrative',
+    'Hidden aspects will emerge through story',
+    'Surprising connections to other characters'
+  );
+  
+  // The most surprising insight: what this character reveals about the user
+  recognition.surprisingAspects.push(
+    `This character reveals something unexpected about you`,
+    `The choice of "${name}" as ${recognition.primaryArchetype} is significant`,
+    `There is meaning in this selection that will emerge through analysis`
+  );
+}
+
+/**
+ * Recognize all characters deeply
+ */
+export function recognizeAllCharacters(characters, assessments = []) {
+  return characters.map(char => {
+    const name = char.displayName || char.id;
+    // Determine position from assessments if available
+    let position = null;
+    
+    // Try to infer position from assessments
+    assessments.forEach(assessment => {
+      if (assessment.selectedCharacterIds && 
+          assessment.selectedCharacterIds.includes(char.id)) {
+        switch (assessment.assessmentType) {
+          case 'EGO_POSITION':
+            position = 'ego';
+            break;
+          case 'PERSONA_FORMATION':
+            position = 'persona';
+            break;
+          case 'SHADOW_PROXIMITY':
+            position = 'shadow';
+            break;
+        }
+      }
+    });
+    
+    return recognizeCharacter(name, characters, position);
+  });
+}
