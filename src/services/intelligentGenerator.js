@@ -175,8 +175,11 @@ export async function generateIntelligentOutput(userData, options = {}) {
   // Step 4: Narrative Generation (gpt-4o - REQUIRED for product quality)
   // This is the core product - mythic coherence, symbolic depth, emotional resonance
   console.log('[Step 4] Narrative Engine (gpt-4o - QUALITY CRITICAL)...');
+  console.log('[Step 4] SelfModel has identificationDynamics:', !!selfModel.identificationDynamics);
   const narrativeOutput = await generateNarrative(selfModel, profiles, options);
   console.log('[Step 4] Narrative generation complete');
+  console.log('[Step 4] narrativeOutput has identification_v2:', !!narrativeOutput.identification_v2);
+  console.log('[Step 4] narrativeOutput keys:', Object.keys(narrativeOutput));
 
   // Step 5: Example Generation (gpt-4o - real examples supporting the narrative)
   console.log('[Step 5] Example Engine - generating real character examples...');
@@ -202,6 +205,7 @@ export async function generateIntelligentOutput(userData, options = {}) {
   const output = {
     story: narrativeOutput.story,
     identification: narrativeOutput.identification,
+    identification_v2: narrativeOutput.identification_v2, // NEW: Center/Orbit system
     functioning: narrativeOutput.functioning,
     actions: narrativeOutput.actions,
     lifeDomains: narrativeOutput.lifeDomains,
@@ -210,7 +214,8 @@ export async function generateIntelligentOutput(userData, options = {}) {
   };
   
   console.log('[Final] Output ready with keys:', Object.keys(output));
-  console.log('[Final] Has examples:', !!output.examples, 'Story count:', output.examples?.story?.length || 0);
+  console.log('[Final] Has identification_v2:', !!output.identification_v2);
+  console.log('[Final] Has examples:', !!output.examples);
 
   // === CACHE OUTPUT ===
   cacheOutput(inputHash, output);
@@ -249,6 +254,285 @@ export async function regenerateNarrativeOnly(userData, options = {}) {
   // Fallback to full generation
   console.log('[Partial Regen] No cached SelfModel, doing full generation...');
   return generateIntelligentOutput(userData, options);
+}
+
+/**
+ * Assessment-driven regeneration - smart partial regen based on what changed
+ * @param {Object} userData - User data with profile and assessments
+ * @param {Object} previousAssessments - Previous assessment state for comparison
+ * @param {Object} options - Generation options
+ */
+export async function regenerateFromAssessmentChange(userData, previousAssessments = [], options = {}) {
+  const { profile, assessments = [] } = userData;
+  const characters = profile?.characters || [];
+  
+  // Compute what mappings changed
+  const changedMappings = computeChangedMappings(assessments, previousAssessments);
+  console.log('[Assessment Regen] Changed mappings:', changedMappings);
+  
+  // Get current input hash
+  const inputHash = createInputHash(characters, assessments);
+  
+  // Check if we have a cached selfModel with previous data
+  const previousHash = createInputHash(characters, previousAssessments);
+  const cachedPrevious = selfModelCache.get(previousHash);
+  
+  if (!cachedPrevious) {
+    console.log('[Assessment Regen] No previous cache, doing full generation');
+    return generateIntelligentOutput(userData, options);
+  }
+  
+  // Determine regeneration scope based on changed mappings
+  const regenScope = determineRegenScope(changedMappings);
+  console.log('[Assessment Regen] Regeneration scope:', regenScope);
+  
+  if (regenScope.fullRegen) {
+    console.log('[Assessment Regen] Full regeneration required');
+    return generateIntelligentOutput(userData, { ...options, force: true });
+  }
+  
+  // Partial regeneration: re-synthesize with new assessments
+  console.log('[Assessment Regen] Partial regeneration with stability...');
+  
+  const selfModel = synthesizeSelfModel(cachedPrevious.profiles, assessments);
+  
+  // Cache the updated selfModel
+  selfModelCache.set(inputHash, {
+    selfModel,
+    profiles: cachedPrevious.profiles,
+    timestamp: Date.now(),
+  });
+  
+  // Regenerate narrative with assessment-aware prompts
+  const narrativeOutput = await generateNarrative(selfModel, cachedPrevious.profiles, {
+    ...options,
+    changedMappings,
+    regenScope,
+  });
+  
+  // Regenerate examples with assessment priorities
+  const examples = await generateExamples(narrativeOutput, cachedPrevious.profiles, selfModel);
+  
+  // Compute delta summary
+  const deltaSummary = computeDeltaSummary(changedMappings, selfModel, cachedPrevious.selfModel);
+  
+  const output = {
+    story: narrativeOutput.story,
+    identification: narrativeOutput.identification,
+    identification_v2: narrativeOutput.identification_v2,
+    functioning: narrativeOutput.functioning,
+    actions: narrativeOutput.actions,
+    lifeDomains: narrativeOutput.lifeDomains,
+    meta: {
+      ...narrativeOutput.meta,
+      regenerationType: 'assessment_driven',
+      changedMappings,
+    },
+    examples,
+    deltaSummary, // What changed and why
+  };
+  
+  // Cache output
+  cacheOutput(inputHash, output);
+  
+  return output;
+}
+
+/**
+ * Compute which mappings changed between assessment states
+ */
+function computeChangedMappings(newAssessments, oldAssessments) {
+  const changed = {
+    ego: false,
+    persona: false,
+    shadow: false,
+    feelingFunction: false,
+    cost: false,
+    individuation: false,
+    libidinalCharge: false,
+  };
+  
+  // Map assessment types to mapping keys
+  const typeToMapping = {
+    'EGO_POSITION': 'ego',
+    'PERSONA_FORMATION': 'persona',
+    'SHADOW_PROXIMITY': 'shadow',
+    'FEELING_FUNCTION': 'feelingFunction',
+    'COST_COMPENSATION': 'cost',
+    'INDIVIDUATION_DIRECTION': 'individuation',
+    'LIBIDINAL_CHARGE': 'libidinalCharge',
+  };
+  
+  // Index old assessments by questionId
+  const oldByQuestion = {};
+  oldAssessments.forEach(a => {
+    if (a.questionId) oldByQuestion[a.questionId] = a;
+  });
+  
+  // Check each new assessment for changes
+  newAssessments.forEach(newA => {
+    const oldA = oldByQuestion[newA.questionId];
+    
+    // Check if this is new or changed
+    const isNew = !oldA;
+    const isChanged = oldA && (
+      JSON.stringify(oldA.selectedCharacterIds?.sort()) !== 
+      JSON.stringify(newA.selectedCharacterIds?.sort())
+    );
+    
+    if (isNew || isChanged) {
+      const mappingKey = typeToMapping[newA.assessmentType];
+      if (mappingKey) {
+        changed[mappingKey] = true;
+      }
+      
+      // Also mark by question prefix
+      if (newA.questionId) {
+        const prefix = newA.questionId.split('_')[0];
+        const prefixMapping = {
+          'LC': 'libidinalCharge',
+          'EG': 'ego',
+          'PF': 'persona',
+          'SP': 'shadow',
+          'FF': 'feelingFunction',
+          'CC': 'cost',
+          'ID': 'individuation',
+        };
+        if (prefixMapping[prefix]) {
+          changed[prefixMapping[prefix]] = true;
+        }
+      }
+    }
+  });
+  
+  // Check for deleted assessments
+  oldAssessments.forEach(oldA => {
+    const stillExists = newAssessments.some(n => n.questionId === oldA.questionId);
+    if (!stillExists) {
+      const mappingKey = typeToMapping[oldA.assessmentType];
+      if (mappingKey) changed[mappingKey] = true;
+    }
+  });
+  
+  return changed;
+}
+
+/**
+ * Determine regeneration scope based on changed mappings
+ */
+function determineRegenScope(changedMappings) {
+  const scope = {
+    fullRegen: false,
+    sections: [],
+  };
+  
+  // Ego change affects: identification ego, story tone, actions
+  if (changedMappings.ego) {
+    scope.sections.push('identification.ego', 'story', 'actions');
+  }
+  
+  // Persona change affects: identification persona, actions warnings
+  if (changedMappings.persona) {
+    scope.sections.push('identification.persona', 'actions');
+  }
+  
+  // Shadow change affects: identification shadow/shadowVirtue, functioning costs
+  if (changedMappings.shadow) {
+    scope.sections.push('identification.shadow', 'identification.shadowVirtue', 'functioning');
+  }
+  
+  // Feeling function change affects: feeling, eros, intimacy domain, redemption arc
+  if (changedMappings.feelingFunction) {
+    scope.sections.push('identification.feelingFunction', 'identification.erosAxis', 
+                        'lifeDomains.intimacy', 'functioning.redemptionArc');
+  }
+  
+  // Cost change affects: functioning costs, actions warnings
+  if (changedMappings.cost) {
+    scope.sections.push('functioning.costsAndCompensations', 'actions');
+  }
+  
+  // Individuation change affects: individuation direction, next chapter
+  if (changedMappings.individuation) {
+    scope.sections.push('story.nextChapter', 'functioning.narrativeArc');
+  }
+  
+  // Libidinal charge affects: current energy emphasis throughout
+  if (changedMappings.libidinalCharge) {
+    scope.sections.push('story', 'functioning.symbolicEssence');
+  }
+  
+  // Full regen if too many sections affected (> 60%)
+  const allSections = ['story', 'identification', 'functioning', 'actions', 'lifeDomains'];
+  const affectedTop = new Set(scope.sections.map(s => s.split('.')[0]));
+  if (affectedTop.size >= 4) {
+    scope.fullRegen = true;
+  }
+  
+  return scope;
+}
+
+/**
+ * Compute delta summary - what changed and why
+ */
+function computeDeltaSummary(changedMappings, newSelfModel, oldSelfModel) {
+  const deltas = [];
+  
+  // Compare ego centers
+  if (changedMappings.ego) {
+    const oldEgo = oldSelfModel?.coreMappings?.ego?.characterRefs?.[0];
+    const newEgo = newSelfModel?.coreMappings?.ego?.characterRefs?.[0];
+    if (oldEgo !== newEgo) {
+      deltas.push({
+        what: 'Ego center shifted',
+        from: oldEgo,
+        to: newEgo,
+        triggeredBy: ['EGO_POSITION assessment'],
+      });
+    }
+  }
+  
+  // Compare dominant now
+  const oldDominant = oldSelfModel?.assessmentState?.dominantNow || [];
+  const newDominant = newSelfModel?.assessmentState?.dominantNow || [];
+  if (JSON.stringify(oldDominant) !== JSON.stringify(newDominant)) {
+    deltas.push({
+      what: 'Current energy emphasis shifted',
+      from: oldDominant.join(', ') || 'none',
+      to: newDominant.join(', ') || 'none',
+      triggeredBy: ['LIBIDINAL_CHARGE assessment'],
+    });
+  }
+  
+  // Compare eros need
+  const oldEros = oldSelfModel?.assessmentState?.erosNeedNow || [];
+  const newEros = newSelfModel?.assessmentState?.erosNeedNow || [];
+  if (JSON.stringify(oldEros) !== JSON.stringify(newEros)) {
+    deltas.push({
+      what: 'Intimacy/connection pattern shifted',
+      from: oldEros.join(', ') || 'none',
+      to: newEros.join(', ') || 'none',
+      triggeredBy: ['FEELING_FUNCTION assessment'],
+    });
+  }
+  
+  // Compare risk edges
+  const oldRisk = oldSelfModel?.assessmentState?.riskEdgesNow || [];
+  const newRisk = newSelfModel?.assessmentState?.riskEdgesNow || [];
+  if (JSON.stringify(oldRisk) !== JSON.stringify(newRisk)) {
+    deltas.push({
+      what: 'Shadow risk edges shifted',
+      from: oldRisk.join(', ') || 'none',
+      to: newRisk.join(', ') || 'none',
+      triggeredBy: ['SHADOW_PROXIMITY assessment'],
+    });
+  }
+  
+  return {
+    changes: deltas,
+    changedMappings,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 /**

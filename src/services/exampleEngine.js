@@ -36,17 +36,161 @@ export async function generateExamples(narrativeOutput, profiles, selfModel) {
   }
 
   try {
-    // Extract all character and narrative mappings
+    // Extract all character and narrative mappings (including v2 dynamics)
     const mappings = extractAllMappings(narrativeOutput, selfModel);
     console.log('[Example Engine] Extracted mappings for all sections');
     
+    // Check for identification_v2 dynamics
+    const hasV2 = !!narrativeOutput.identification_v2;
+    if (hasV2) {
+      console.log('[Example Engine] Found identification_v2 - extracting orbit/compensation contexts');
+      mappings.identificationV2 = extractV2Mappings(narrativeOutput.identification_v2, selfModel);
+    }
+    
+    // === NEW: Extract assessment signals for example prioritization ===
+    const assessmentState = selfModel.assessmentState || {};
+    const assessmentPriorities = {
+      dominantNow: assessmentState.dominantNow || [],
+      erosNeedNow: assessmentState.erosNeedNow || [],
+      riskEdgesNow: assessmentState.riskEdgesNow || [],
+      contextTriggers: assessmentState.contextTriggers || [],
+    };
+    mappings.assessmentPriorities = assessmentPriorities;
+    
+    if (assessmentPriorities.dominantNow.length > 0) {
+      console.log('[Example Engine] Assessment priorities - dominant:', assessmentPriorities.dominantNow.join(', '));
+    }
+    
     const examples = await generateAllExamplesWithAI(narrativeOutput, profiles, selfModel, mappings, client);
+    
+    // === NEW: Ensure assessment-aligned examples are included ===
+    const enhancedExamples = ensureAssessmentAlignedExamples(examples, assessmentPriorities, profiles);
+    
     console.log('[Example Engine] Generated examples successfully');
-    return examples;
+    return enhancedExamples;
   } catch (error) {
     console.error('[Example Engine] Error:', error.message);
     return createEmptyExamples();
   }
+}
+
+/**
+ * Ensure assessment-aligned examples are prioritized
+ * Guarantees at least 1 example from dominant/eros/risk characters where applicable
+ */
+function ensureAssessmentAlignedExamples(examples, priorities, profiles) {
+  // Story: At least 1 example from dominantNow character (if answered)
+  if (priorities.dominantNow.length > 0 && examples.story) {
+    const dominantChar = priorities.dominantNow[0];
+    const storyKeys = ['mythSummary', 'centralTension', 'guidingSentence', 'northStarScene'];
+    
+    storyKeys.forEach(key => {
+      if (examples.story[key]?.length > 0) {
+        // Check if dominant character is already represented
+        const hasDominant = examples.story[key].some(ex => 
+          characterMatches(ex.characterName, dominantChar)
+        );
+        
+        if (!hasDominant) {
+          // Move any dominant character example to front
+          const allStoryExamples = storyKeys.flatMap(k => examples.story[k] || []);
+          const dominantExample = allStoryExamples.find(ex => 
+            characterMatches(ex.characterName, dominantChar)
+          );
+          if (dominantExample) {
+            examples.story[key].unshift({
+              ...dominantExample,
+              assessmentAligned: true,
+              alignmentReason: 'Current psychic energy (LC)',
+            });
+          }
+        }
+      }
+    });
+  }
+  
+  // Intimacy domain: At least 1 example from erosNeedNow character (if answered)
+  if (priorities.erosNeedNow.length > 0 && examples.lifeDomains?.intimacy) {
+    const erosChar = priorities.erosNeedNow[0];
+    const hasEros = examples.lifeDomains.intimacy.some(ex => 
+      characterMatches(ex.characterName, erosChar)
+    );
+    
+    if (!hasEros) {
+      // Find any example from this character in other domains
+      const allDomainExamples = Object.values(examples.lifeDomains || {}).flat();
+      const erosExample = allDomainExamples.find(ex => 
+        characterMatches(ex.characterName, erosChar)
+      );
+      if (erosExample) {
+        examples.lifeDomains.intimacy.unshift({
+          ...erosExample,
+          assessmentAligned: true,
+          alignmentReason: 'Intimacy/connection need (FF)',
+        });
+      }
+    }
+  }
+  
+  // Actions: At least 1 warning example from riskEdgesNow character (if answered)
+  if (priorities.riskEdgesNow.length > 0 && examples.actions?.length > 0) {
+    const riskChar = priorities.riskEdgesNow[0];
+    const hasRisk = examples.actions.some(ex => 
+      characterMatches(ex.characterName, riskChar)
+    );
+    
+    if (!hasRisk) {
+      // Find any example from this character
+      const allExamples = [
+        ...Object.values(examples.identification || {}).flat(),
+        ...Object.values(examples.functioning || {}).flat(),
+      ];
+      const riskExample = allExamples.find(ex => 
+        characterMatches(ex.characterName, riskChar)
+      );
+      if (riskExample) {
+        examples.actions.unshift({
+          ...riskExample,
+          assessmentAligned: true,
+          alignmentReason: 'Shadow risk edge (SP)',
+        });
+      }
+    }
+  }
+  
+  return examples;
+}
+
+/**
+ * Extract mappings from identification_v2 (Center/Orbit/Compensation)
+ */
+function extractV2Mappings(v2, selfModel) {
+  const mappings = {};
+  const archetypes = ['ego', 'persona', 'shadow', 'shadowVirtue', 'feelingFunction', 'erosAxis'];
+  
+  archetypes.forEach(archetype => {
+    const dynamics = v2[archetype];
+    if (!dynamics) return;
+    
+    mappings[archetype] = {
+      center: {
+        characters: dynamics.center?.characters || [],
+        summary: dynamics.center?.summary?.substring(0, 150) || '',
+      },
+      orbit: (dynamics.orbit || []).map(o => ({
+        trigger: o.trigger?.name || '',
+        characters: o.characters || [],
+        pattern: o.pattern?.substring(0, 100) || '',
+      })),
+      compensations: (dynamics.compensations || []).map(c => ({
+        name: c.name || '',
+        characters: c.characters || [],
+        expression: c.expression?.slice(0, 2) || [],
+      })),
+    };
+  });
+  
+  return mappings;
 }
 
 /**
@@ -262,9 +406,47 @@ function buildComprehensivePrompt(profiles, mappings, characterNames) {
     .map((a, i) => `${i+1}."${a.title?.substring(0, 40) || 'Situation'}"`)
     .join(', ');
 
+  // Build V2 context if available (for orbit/compensation examples)
+  let v2Context = '';
+  if (mappings.identificationV2) {
+    const v2Lines = [];
+    Object.entries(mappings.identificationV2).forEach(([archetype, data]) => {
+      if (data.orbit?.length) {
+        v2Lines.push(`${archetype} ORBIT shifts: ${data.orbit.map(o => `"${o.trigger}" -> ${o.characters.join(',')}`).join('; ')}`);
+      }
+      if (data.compensations?.length) {
+        v2Lines.push(`${archetype} COMPENSATIONS: ${data.compensations.map(c => `"${c.name}" via ${c.characters.join(',')}`).join('; ')}`);
+      }
+    });
+    if (v2Lines.length) {
+      v2Context = `\n\nIDENTIFICATION V2 DYNAMICS (use these for richer examples):\n${v2Lines.join('\n')}`;
+    }
+  }
+  
+  // === NEW: Build assessment priority context ===
+  let assessmentContext = '';
+  if (mappings.assessmentPriorities) {
+    const priorities = mappings.assessmentPriorities;
+    const priorityLines = [];
+    
+    if (priorities.dominantNow?.length > 0) {
+      priorityLines.push(`PRIORITY - Current Energy (must have examples in Story): ${priorities.dominantNow.join(', ')}`);
+    }
+    if (priorities.erosNeedNow?.length > 0) {
+      priorityLines.push(`PRIORITY - Intimacy Need (must have example in intimacy domain): ${priorities.erosNeedNow.join(', ')}`);
+    }
+    if (priorities.riskEdgesNow?.length > 0) {
+      priorityLines.push(`PRIORITY - Shadow Risk (must have warning example in Actions): ${priorities.riskEdgesNow.join(', ')}`);
+    }
+    
+    if (priorityLines.length > 0) {
+      assessmentContext = `\n\nASSESSMENT-DRIVEN PRIORITIES:\n${priorityLines.join('\n')}`;
+    }
+  }
+
   return `Characters: ${characterNames}
 
-IDENTIFICATION CHARACTER ASSIGNMENTS: ${idMap}
+IDENTIFICATION CHARACTER ASSIGNMENTS: ${idMap}${v2Context}${assessmentContext}
 
 Generate JSON with real film/TV/book examples:
 {

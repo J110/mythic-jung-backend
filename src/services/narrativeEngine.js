@@ -31,12 +31,24 @@ export async function generateNarrative(selfModel, profiles, options = {}) {
   // Generate the complete narrative using a detailed, character-specific prompt
   const output = await generateFullNarrative(selfModel, profiles, client);
   
+  // Generate identification_v2 if dynamics are available
+  if (selfModel.identificationDynamics) {
+    console.log('[Narrative Engine] Generating identification_v2 (Center/Orbit)...');
+    try {
+      output.identification_v2 = await generateIdentificationV2(selfModel, profiles, client);
+      console.log('[Narrative Engine] identification_v2 generated successfully');
+    } catch (v2Error) {
+      console.error('[Narrative Engine] Error generating identification_v2:', v2Error.message);
+    }
+  }
+  
   // Add meta (no evidence - examples will be added by Example Engine)
   output.meta = {
     generatedAt: new Date().toISOString(),
     modelVersion: process.env.OPENAI_NARRATIVE_MODEL || 'gpt-4o',
     promptVersion: 'v2-dynamic',
     schemaVersion: 1,
+    identificationVersion: selfModel.identificationDynamics ? '2.0' : '1.0',
   };
   
   console.log('[Narrative Engine] Generation complete');
@@ -50,11 +62,18 @@ async function generateFullNarrative(selfModel, profiles, client) {
   // Build rich character context
   const characterContext = buildCharacterContext(profiles, selfModel);
   
-  // Optimized concise system prompt
+  // === NEW: Build assessment-aware context ===
+  const assessmentContext = buildAssessmentContext(selfModel);
+  
+  // Optimized concise system prompt with assessment awareness
   const systemPrompt = `You are a Jungian storyteller. Create mythical, deeply personal narratives.
 STYLE: Joseph Campbell + Carl Jung. Vivid imagery. Character-specific references. Poetic language.
 AVOID: Generic phrases, psychology jargon, vague advice.
-INCLUDE: Specific character scenes, archetypal metaphors, mythic tension.`;
+INCLUDE: Specific character scenes, archetypal metaphors, mythic tension.
+${assessmentContext.emphasis ? `CURRENT EMPHASIS: ${assessmentContext.emphasis}` : ''}`;
+
+  // Build assessment-specific instructions
+  const assessmentInstructions = buildAssessmentInstructions(selfModel);
 
   const userPrompt = `Create a complete Jungian psychological profile for someone whose inner world is mapped by these characters:
 
@@ -65,6 +84,11 @@ SELF MODEL ANALYSIS:
 - Life Phase: ${selfModel.coreMappings.lifePhase?.characterRefs?.[0] || 'Transformation'}
 - Missing Qualities: ${selfModel.individuationDirection.missingQualities.join(', ')}
 - Next Chapter Theme: ${selfModel.individuationDirection.nextChapterTheme}
+${assessmentContext.dominantNow ? `- Current Psychic Energy: Strongly expressed through ${assessmentContext.dominantNow.join(' and ')}` : ''}
+${assessmentContext.erosNeedNow ? `- Intimacy/Connection Need: Seeking through ${assessmentContext.erosNeedNow.join(' and ')}` : ''}
+${assessmentContext.riskEdgesNow ? `- Shadow Risk Edges: Watch for ${assessmentContext.riskEdgesNow.join(', ')}` : ''}
+
+${assessmentInstructions}
 
 Generate a JSON response with this EXACT structure (all fields required):
 
@@ -219,6 +243,303 @@ Generate 4-5 situationBlocks. All text must be specific to these characters.`;
     console.error('[Narrative Engine] Error:', error.message);
     throw new Error(`Failed to generate narrative: ${error.message}`);
   }
+}
+
+/**
+ * Generate identification_v2 with Center/Orbit/Compensation narratives
+ */
+async function generateIdentificationV2(selfModel, profiles, client) {
+  const dynamics = selfModel.identificationDynamics;
+  
+  // Build a compact context for the AI
+  const archetypeContext = Object.entries(dynamics)
+    .filter(([_, data]) => data?.center)
+    .map(([archetype, data]) => {
+      const centerChars = data.center.characters.join(', ');
+      const orbitCount = data.orbit?.length || 0;
+      const compCount = data.compensations?.length || 0;
+      return `${archetype}: center=${centerChars}, orbits=${orbitCount}, comps=${compCount}`;
+    })
+    .join('\n');
+  
+  const characterContext = profiles.map(p => 
+    `${p.name}: ${p.archetypeSignals?.primaryArchetypes?.slice(0,2).join(', ') || 'Hero'}`
+  ).join('; ');
+
+  const systemPrompt = `You are a Jungian analyst generating rich, descriptive narratives for psychological positions.
+STYLE: Descriptive, character-specific, mythic but accessible. NO therapy-speak, NO generic advice.
+OUTPUT: Pure JSON. All text fields must be substantive and specific to the characters.`;
+
+  const userPrompt = `Generate identification_v2 narratives for this person's psychological structure:
+
+ARCHETYPE MAPPINGS:
+${archetypeContext}
+
+CHARACTERS: ${characterContext}
+
+For EACH archetype (ego, persona, shadow, shadowVirtue, feelingFunction, erosAxis), generate:
+
+{
+  "version": "2.0",
+  "ego": {
+    "center": {
+      "summary": "3-6 sentences describing their stable ego position, referencing the specific character. How they typically show up, what drives them, their core way of being.",
+      "details": "4-8 sentences going deeper into the psychological meaning. What does this ego structure seek? What does it fear? How does it navigate?"
+    },
+    "orbit": [
+      {
+        "pattern": "1-3 sentences describing the shift pattern (descriptive, not advice). Reference character behavior.",
+        "stabilizer": "1 sentence on what naturally helps return to center (observed pattern, not advice)"
+      }
+    ],
+    "compensations": [
+      {
+        "expression": ["2-4 bullet behaviors observed when this compensation activates"],
+        "risk": "1-2 sentences describing the cost if this continues (descriptive)",
+        "returnPath": "1-2 sentences describing what restores balance (observed pattern)"
+      }
+    ]
+  },
+  "persona": { /* same structure */ },
+  "shadow": { /* same structure */ },
+  "shadowVirtue": { /* same structure - can have fewer orbits/compensations */ },
+  "feelingFunction": { /* same structure */ },
+  "erosAxis": { /* same structure - can have fewer orbits/compensations */ }
+}
+
+RULES:
+- All summaries/details MUST reference specific character names and their traits
+- Orbit patterns should match ${Object.values(dynamics).map(d => d.orbit?.length || 0).join(',')} entries respectively
+- Compensation entries should match ${Object.values(dynamics).map(d => d.compensations?.length || 0).join(',')} entries respectively
+- Keep language mythic but accessible to laypeople
+- No diagnosis language, no advice tone`;
+
+  try {
+    const response = await client.chat.completions.create({
+      model: process.env.OPENAI_NARRATIVE_MODEL || 'gpt-4o',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.7,
+      max_tokens: 4000,
+    });
+
+    const content = response.choices[0].message.content.trim();
+    const parsed = JSON.parse(content);
+    
+    // Merge AI-generated narratives with deterministic data from dynamics
+    return mergeIdentificationV2(parsed, dynamics, profiles);
+  } catch (error) {
+    console.error('[Narrative Engine] Error generating identification_v2:', error.message);
+    // Return a minimal v2 structure on error
+    return createMinimalIdentificationV2(dynamics, profiles);
+  }
+}
+
+/**
+ * Merge AI narratives with deterministic synthesis data
+ */
+function mergeIdentificationV2(aiGenerated, dynamics, profiles) {
+  const result = {
+    version: '2.0',
+  };
+  
+  const archetypes = ['ego', 'persona', 'shadow', 'shadowVirtue', 'feelingFunction', 'erosAxis'];
+  
+  archetypes.forEach(archetype => {
+    const dynamicData = dynamics[archetype];
+    const aiData = aiGenerated[archetype];
+    
+    if (!dynamicData?.center) {
+      result[archetype] = null;
+      return;
+    }
+    
+    result[archetype] = {
+      // CENTER: deterministic data + AI narrative
+      center: {
+        label: dynamicData.center.label,
+        characters: dynamicData.center.characters,
+        summary: aiData?.center?.summary || `Your ${archetype} is embodied by ${dynamicData.center.characters.join(' and ')}.`,
+        details: aiData?.center?.details || '',
+        confidence: dynamicData.center.confidence,
+        rationale: dynamicData.center.rationale,
+      },
+      
+      // ORBIT: deterministic triggers + AI patterns
+      orbit: (dynamicData.orbit || []).map((orbitEntry, idx) => ({
+        trigger: orbitEntry.trigger,
+        characters: orbitEntry.characters,
+        pattern: aiData?.orbit?.[idx]?.pattern || '',
+        costRisk: orbitEntry.costRisk,
+        stabilizer: aiData?.orbit?.[idx]?.stabilizer || '',
+        rationale: orbitEntry.rationale,
+      })),
+      
+      // COMPENSATIONS: deterministic structure + AI descriptions
+      compensations: (dynamicData.compensations || []).map((comp, idx) => ({
+        name: comp.name,
+        when: comp.when,
+        expression: aiData?.compensations?.[idx]?.expression || comp.expression,
+        risk: aiData?.compensations?.[idx]?.risk || comp.risk,
+        returnPath: aiData?.compensations?.[idx]?.returnPath || comp.returnPath,
+        characters: comp.characters,
+        rationale: comp.rationale,
+      })),
+    };
+  });
+  
+  return result;
+}
+
+/**
+ * Create minimal identification_v2 when AI generation fails
+ */
+function createMinimalIdentificationV2(dynamics, profiles) {
+  const result = {
+    version: '2.0',
+  };
+  
+  const archetypes = ['ego', 'persona', 'shadow', 'shadowVirtue', 'feelingFunction', 'erosAxis'];
+  
+  archetypes.forEach(archetype => {
+    const dynamicData = dynamics[archetype];
+    
+    if (!dynamicData?.center) {
+      result[archetype] = null;
+      return;
+    }
+    
+    const primaryChar = dynamicData.center.characters[0];
+    const profile = profiles.find(p => p.name === primaryChar);
+    
+    result[archetype] = {
+      center: {
+        label: dynamicData.center.label,
+        characters: dynamicData.center.characters,
+        summary: `Your ${archetype} finds its expression through ${primaryChar}${profile?.archetypeSignals?.primaryArchetypes?.[0] ? `, carrying the ${profile.archetypeSignals.primaryArchetypes[0]} archetype` : ''}.`,
+        details: '',
+        confidence: dynamicData.center.confidence,
+        rationale: dynamicData.center.rationale,
+      },
+      orbit: (dynamicData.orbit || []).map(orbitEntry => ({
+        trigger: orbitEntry.trigger,
+        characters: orbitEntry.characters,
+        pattern: '',
+        costRisk: orbitEntry.costRisk,
+        stabilizer: '',
+        rationale: orbitEntry.rationale,
+      })),
+      compensations: (dynamicData.compensations || []).map(comp => ({
+        name: comp.name,
+        when: comp.when,
+        expression: comp.expression,
+        risk: comp.risk,
+        returnPath: comp.returnPath,
+        characters: comp.characters,
+        rationale: comp.rationale,
+      })),
+    };
+  });
+  
+  return result;
+}
+
+/**
+ * Build assessment-aware context for narrative generation
+ */
+function buildAssessmentContext(selfModel) {
+  const state = selfModel.assessmentState || {};
+  const signals = selfModel.assessmentSignals || {};
+  
+  let emphasis = '';
+  
+  // Determine narrative emphasis based on assessment signals
+  if (state.dominantNow?.length > 0) {
+    emphasis = `Focus current energy descriptions on ${state.dominantNow.join(' and ')}`;
+  }
+  
+  // Add surprise insight if available
+  const surprises = state.surpriseCandidates || signals.surpriseCandidates || [];
+  if (surprises.length > 0) {
+    const topSurprise = surprises[0];
+    emphasis += emphasis ? '. ' : '';
+    emphasis += `Include this grounded insight: "${topSurprise.insight}"`;
+  }
+  
+  return {
+    dominantNow: state.dominantNow?.length > 0 ? state.dominantNow : null,
+    erosNeedNow: state.erosNeedNow?.length > 0 ? state.erosNeedNow : null,
+    riskEdgesNow: state.riskEdgesNow?.length > 0 ? state.riskEdgesNow : null,
+    contextTriggers: state.contextTriggers || signals.contextTriggers || [],
+    surprises,
+    emphasis,
+    coverage: state.coverage || signals.coverage || {},
+  };
+}
+
+/**
+ * Build assessment-specific generation instructions
+ */
+function buildAssessmentInstructions(selfModel) {
+  const state = selfModel.assessmentState || {};
+  const triggers = state.contextTriggers || selfModel.assessmentSignals?.contextTriggers || [];
+  const surprises = state.surpriseCandidates || selfModel.assessmentSignals?.surpriseCandidates || [];
+  
+  const instructions = [];
+  
+  // Felt-emphasis alignment: Libidinal Charge characters in Story + Functioning
+  if (state.dominantNow?.length > 0) {
+    instructions.push(`FELT ALIGNMENT: In Story mythSummary and Functioning symbolicEssence, emphasize ${state.dominantNow.join(' and ')} as the current foreground energy. They should feel present and active.`);
+  }
+  
+  // Persona cost realism from PF_Q3
+  const costlyMaskTrigger = triggers.find(t => t.triggerTag === 'costly_mask');
+  if (costlyMaskTrigger) {
+    instructions.push(`PERSONA COST: In Actions warnings, reference the cost of the ${costlyMaskTrigger.dominantCharacterIds?.[0] || 'persona'} mask. Be specific about what maintaining this costs.`);
+  }
+  
+  // Shadow nuance from SP_Q4
+  const shadowVirtueTrigger = triggers.find(t => t.triggerTag === 'shadow_virtue');
+  if (shadowVirtueTrigger) {
+    instructions.push(`SHADOW VIRTUE: In shadowVirtue identification, show how ${shadowVirtueTrigger.dominantCharacterIds?.[0] || 'the shadow'} offers a borrowed virtue in specific contexts.`);
+  }
+  
+  // Eros/intimacy anchoring from FF_Q4
+  if (state.erosNeedNow?.length > 0) {
+    instructions.push(`EROS ANCHORING: In intimacy lifeDomain and erosAxis, strongly feature ${state.erosNeedNow.join(' and ')} as the primary intimacy/connection pattern.`);
+  }
+  
+  // Cost/Compensation grounding from CC
+  const exhaustionTrigger = triggers.find(t => t.triggerTag === 'exhaustion');
+  const restoreTrigger = triggers.find(t => t.triggerTag === 'restore_ritual');
+  if (exhaustionTrigger || restoreTrigger) {
+    const ccInstructions = [];
+    if (exhaustionTrigger) {
+      ccInstructions.push(`burnout pattern through ${exhaustionTrigger.dominantCharacterIds?.[0] || 'cost character'}`);
+    }
+    if (restoreTrigger) {
+      ccInstructions.push(`restore ritual through ${restoreTrigger.dominantCharacterIds?.[0] || 'restore character'}`);
+    }
+    instructions.push(`COST GROUNDING: In Functioning costsAndCompensations and Actions warnings, include ${ccInstructions.join(' and ')}.`);
+  }
+  
+  // Surprise insight (grounded, not hallucinated)
+  if (surprises.length > 0) {
+    const topSurprise = surprises[0];
+    instructions.push(`GROUNDED INSIGHT: Include this surprising but grounded observation in the narrative: "${topSurprise.insight}" (supported by ${topSurprise.assessmentRefs?.join(', ') || 'assessment'} and ${topSurprise.traitSignals?.join(', ') || 'character traits'}). Do NOT introduce new characters or factual claims.`);
+  }
+  
+  if (instructions.length === 0) {
+    return '';
+  }
+  
+  return `
+ASSESSMENT-DRIVEN PERSONALIZATION:
+${instructions.map((inst, i) => `${i + 1}. ${inst}`).join('\n')}
+`;
 }
 
 /**
