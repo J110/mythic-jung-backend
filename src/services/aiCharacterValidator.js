@@ -65,8 +65,9 @@ export async function validateCharactersWithAI(characters) {
     
     const confidenceScore = (highConfCount * 1.0 + mediumConfCount * 0.7 + lowConfCount * 0.3) / totalChars;
     
-    // Require at least 4 out of 6 to be recognized with medium+ confidence
-    if (highConfidence.length < 4) {
+    // Require at least minRequired characters to be recognized with medium+ confidence
+    const minRequired = Math.max(4, Math.ceil(characterNames.length * 0.67));  // At least 67% must be valid
+    if (highConfidence.length < minRequired) {
       const allUnrecognized = [...unrecognized, ...lowConfidence].map(r => r.name);
       const needsClarification = lowConfidence.map(r => r.name);
       

@@ -1,6 +1,6 @@
 /**
  * Synthesis Engine
- * Combines 6 CharacterProfiles + assessment answers into a coherent SelfModel.
+ * Combines 4-6 CharacterProfiles + assessment answers into a coherent SelfModel.
  * Based on: 03_SYNTHESIS_ENGINE_SPEC.md
  * 
  * V2: Assessment-aware synthesis with stability smoothing
@@ -15,24 +15,28 @@ import {
 // Store previous synthesis for stability comparison
 let previousSynthesis = null;
 
+// Character count constants
+const MIN_CHARACTERS = 4;
+const MAX_CHARACTERS = 6;
+
 /**
  * Synthesize SelfModel from character profiles and assessments
- * @param {CharacterProfile[]} profiles - Array of 6 character profiles
+ * @param {CharacterProfile[]} profiles - Array of 4-6 character profiles
  * @param {Object[]} assessmentAnswers - Assessment answers keyed by questionId
  * @param {Object} options - Synthesis options
  * @returns {SelfModel}
  */
 export function synthesizeSelfModel(profiles, assessmentAnswers = [], options = {}) {
-  if (!profiles || profiles.length !== 6) {
-    throw new Error('Exactly 6 character profiles required for synthesis');
+  if (!profiles || profiles.length < MIN_CHARACTERS || profiles.length > MAX_CHARACTERS) {
+    throw new Error(`${MIN_CHARACTERS}-${MAX_CHARACTERS} character profiles required for synthesis (got ${profiles?.length || 0})`);
   }
 
   // === NEW: Process Assessment Signals ===
   const assessmentSignals = processAssessmentSignals(assessmentAnswers, profiles);
   console.log('[Synthesis] Assessment coverage:', assessmentSignals.coverage.overall.toFixed(2));
 
-  // Step 1: Start with equal weights
-  const initialWeights = profiles.map(() => 1.0 / 6.0);
+  // Step 1: Start with equal weights (dynamic based on profile count)
+  const initialWeights = profiles.map(() => 1.0 / profiles.length);
   
   // Step 2: Apply assessment overrides (basic)
   const basicAdjustedWeights = applyAssessmentOverrides(profiles, initialWeights, assessmentAnswers);
