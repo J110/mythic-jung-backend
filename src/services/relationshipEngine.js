@@ -48,7 +48,8 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
   console.log('[RelationshipEngine] Step 1: Character Recognition...');
   const recognitionResult = await recognizeCharacters(otherCharacterInputs);
   
-  const validCharacters = recognitionResult.filter(r => r.status === 'RECOGNIZED');
+  // recognizeCharacters returns { results: [...], overall: {...} }
+  const validCharacters = recognitionResult.results.filter(r => r.status === 'RECOGNIZED');
   if (validCharacters.length < 4) {
     throw new Error(`Only ${validCharacters.length} characters recognized. Need at least 4.`);
   }
