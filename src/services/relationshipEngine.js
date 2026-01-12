@@ -49,16 +49,24 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
   const recognitionResult = await recognizeCharacters(otherCharacterInputs);
   
   // recognizeCharacters returns { results: [...], overall: {...} }
-  const validCharacters = recognitionResult.results.filter(r => r.status === 'RECOGNIZED');
-  if (validCharacters.length < 4) {
-    throw new Error(`Only ${validCharacters.length} characters recognized. Need at least 4.`);
+  const validResults = recognitionResult.results.filter(r => r.status === 'RECOGNIZED');
+  if (validResults.length < 4) {
+    throw new Error(`Only ${validResults.length} characters recognized. Need at least 4.`);
   }
-  console.log(`[RelationshipEngine] Step 1 complete: ${validCharacters.length} recognized`);
+  
+  // Extract canonical objects for discovery (discoverCharacterProfiles expects canonicals, not raw results)
+  const canonicals = validResults.map(r => r.canonical);
+  console.log(`[RelationshipEngine] Step 1 complete: ${validResults.length} recognized`);
+  console.log(`[RelationshipEngine] Canonical names: ${canonicals.map(c => c.name).join(', ')}`);
   
   // Step 2: Discover character profiles
   console.log('[RelationshipEngine] Step 2: Character Discovery...');
-  const otherProfiles = await discoverCharacterProfiles(validCharacters);
+  const otherProfiles = await discoverCharacterProfiles(canonicals);
+  
+  // Log character names for debugging
+  const characterNames = otherProfiles.map(p => p.name || p.canonicalName || 'Unknown');
   console.log(`[RelationshipEngine] Step 2 complete: ${otherProfiles.length} profiles`);
+  console.log(`[RelationshipEngine] Characters: ${characterNames.join(', ')}`);
   
   // Step 3: Build OtherSelfModel (synthesis without assessments)
   console.log('[RelationshipEngine] Step 3: Building OtherSelfModel...');
@@ -109,6 +117,7 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
       relationshipType,
       hasMeData: !!meData.selfModel,
       otherCharacterCount: otherProfiles.length,
+      characterNames,
     }
   };
   
@@ -120,35 +129,58 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
 }
 
 /**
+ * Helper to get character name from mapping
+ */
+function getCharacterName(mapping) {
+  if (!mapping) return null;
+  // coreMappings uses characterRefs array
+  return mapping.characterRefs?.[0] || mapping.character || null;
+}
+
+/**
  * Build RelationshipModel deterministically from trait data
  */
 function buildRelationshipModel(otherSelfModel, otherProfiles, meSelfModel, meCharacters, relationshipType) {
   const isRomantic = relationshipType === 'romantic';
   
   // Extract key patterns from Other
-  const otherMappings = otherSelfModel.coreMappings;
+  const otherMappings = otherSelfModel.coreMappings || {};
   const otherTensions = otherSelfModel.tensions || [];
   
+  // Get character names for all mappings
+  const characterNameMap = {
+    ego: getCharacterName(otherMappings.ego),
+    persona: getCharacterName(otherMappings.persona),
+    shadow: getCharacterName(otherMappings.shadow),
+    shadowVirtue: getCharacterName(otherMappings.shadowVirtue),
+    feelingFunction: getCharacterName(otherMappings.feelingFunction),
+    eros: getCharacterName(otherMappings.erosAxis),
+  };
+  
+  console.log('[RelationshipEngine] Character mappings:', characterNameMap);
+  
   // Calculate relational dynamics
-  const field = calculateRelationalField(otherSelfModel, meSelfModel, otherProfiles);
-  const bondingAxis = calculateBondingAxis(otherSelfModel, meSelfModel, isRomantic);
-  const projectionShadow = calculateProjectionShadow(otherSelfModel, meSelfModel);
-  const egoPersonaMismatch = calculateEgoPersonaMismatch(otherSelfModel, meSelfModel);
-  const communicationConflict = calculateCommunicationConflict(otherSelfModel, meSelfModel, otherProfiles);
-  const needsBoundaries = calculateNeedsBoundaries(otherSelfModel, meSelfModel, isRomantic);
-  const growthPath = calculateGrowthPath(otherSelfModel, meSelfModel, otherTensions);
-  const redFlagsRepair = calculateRedFlagsRepair(otherSelfModel, meSelfModel, otherTensions);
+  const field = calculateRelationalField(otherSelfModel, meSelfModel, otherProfiles, characterNameMap);
+  const bondingAxis = calculateBondingAxis(otherSelfModel, meSelfModel, isRomantic, characterNameMap);
+  const projectionShadow = calculateProjectionShadow(otherSelfModel, meSelfModel, characterNameMap);
+  const egoPersonaMismatch = calculateEgoPersonaMismatch(otherSelfModel, meSelfModel, characterNameMap);
+  const communicationConflict = calculateCommunicationConflict(otherSelfModel, meSelfModel, otherProfiles, characterNameMap);
+  const needsBoundaries = calculateNeedsBoundaries(otherSelfModel, meSelfModel, isRomantic, characterNameMap);
+  const growthPath = calculateGrowthPath(otherSelfModel, meSelfModel, otherTensions, characterNameMap);
+  const redFlagsRepair = calculateRedFlagsRepair(otherSelfModel, meSelfModel, otherTensions, characterNameMap);
   
   // Generate situational guidance
   const nextStepsSituations = generateNextStepsSituations(
     field,
     bondingAxis,
     communicationConflict,
-    isRomantic
+    isRomantic,
+    characterNameMap
   );
   
   return {
     type: relationshipType,
+    characterNames: characterNameMap,
     field,
     bondingAxis,
     projectionShadow,
@@ -169,14 +201,10 @@ function buildRelationshipModel(otherSelfModel, otherProfiles, meSelfModel, meCh
 /**
  * Calculate the relational field between two people
  */
-function calculateRelationalField(otherSelfModel, meSelfModel, otherProfiles) {
-  const weights = otherSelfModel.weights?.perCharacterWeight || {};
-  const mappings = otherSelfModel.coreMappings || {};
-  
-  // Determine field type based on ego/persona dynamics
-  const egoChar = mappings.ego?.character;
-  const personaChar = mappings.persona?.character;
-  const shadowChar = mappings.shadow?.character;
+function calculateRelationalField(otherSelfModel, meSelfModel, otherProfiles, charNames) {
+  const egoChar = charNames.ego;
+  const personaChar = charNames.persona;
+  const shadowChar = charNames.shadow;
   
   // Calculate polarity and resonance
   let polarityScore = 0;
@@ -185,10 +213,13 @@ function calculateRelationalField(otherSelfModel, meSelfModel, otherProfiles) {
   // If Me data exists, calculate actual polarity
   if (meSelfModel) {
     const meMappings = meSelfModel.coreMappings || {};
-    // Check for complementary vs similar patterns
-    if (meMappings.ego?.character !== egoChar) polarityScore += 0.3;
-    if (meMappings.shadow?.character === egoChar) polarityScore += 0.4; // Projection potential
-    if (meMappings.persona?.character === personaChar) resonanceScore += 0.3;
+    const meEgo = getCharacterName(meMappings.ego);
+    const meShadow = getCharacterName(meMappings.shadow);
+    const mePersona = getCharacterName(meMappings.persona);
+    
+    if (meEgo !== egoChar) polarityScore += 0.3;
+    if (meShadow === egoChar) polarityScore += 0.4; // Projection potential
+    if (mePersona === personaChar) resonanceScore += 0.3;
   }
   
   return {
@@ -199,9 +230,9 @@ function calculateRelationalField(otherSelfModel, meSelfModel, otherProfiles) {
     secondaryDynamic: personaChar,
     shadowElement: shadowChar,
     analysisBullets: [
-      `Primary relational axis through ${egoChar || 'unknown'}`,
-      `Social interface mediated by ${personaChar || 'unknown'}`,
-      `Hidden tensions around ${shadowChar || 'unknown'}`
+      `Primary relational axis through ${egoChar || 'core identity'}`,
+      `Social interface mediated by ${personaChar || 'adaptive self'}`,
+      `Hidden tensions around ${shadowChar || 'shadow aspects'}`
     ]
   };
 }
@@ -209,12 +240,10 @@ function calculateRelationalField(otherSelfModel, meSelfModel, otherProfiles) {
 /**
  * Calculate attraction and bonding dynamics
  */
-function calculateBondingAxis(otherSelfModel, meSelfModel, isRomantic) {
-  const mappings = otherSelfModel.coreMappings || {};
-  const erosChar = mappings.eros?.character;
-  const feelingChar = mappings.feelingFunction?.character;
+function calculateBondingAxis(otherSelfModel, meSelfModel, isRomantic, charNames) {
+  const erosChar = charNames.eros;
+  const feelingChar = charNames.feelingFunction;
   
-  // Different emphasis for romantic vs platonic
   const bondingType = isRomantic ? 'eros-driven' : 'trust-driven';
   
   return {
@@ -223,8 +252,8 @@ function calculateBondingAxis(otherSelfModel, meSelfModel, isRomantic) {
     secondaryAxis: isRomantic ? feelingChar : erosChar,
     intimacyStyle: isRomantic ? 'vulnerability-based' : 'collaboration-based',
     analysisBullets: [
-      `${isRomantic ? 'Attraction' : 'Trust'} anchored in ${isRomantic ? erosChar : feelingChar}`,
-      `Emotional connection through ${feelingChar}`,
+      `${isRomantic ? 'Attraction' : 'Trust'} anchored in ${(isRomantic ? erosChar : feelingChar) || 'relational center'}`,
+      `Emotional connection through ${feelingChar || 'feeling function'}`,
       isRomantic ? 'Intimacy requires safe vulnerability' : 'Bond strengthens through shared challenges'
     ]
   };
@@ -233,14 +262,12 @@ function calculateBondingAxis(otherSelfModel, meSelfModel, isRomantic) {
 /**
  * Calculate projection and shadow triggers
  */
-function calculateProjectionShadow(otherSelfModel, meSelfModel) {
-  const mappings = otherSelfModel.coreMappings || {};
-  const shadowChar = mappings.shadow?.character;
-  const shadowVirtueChar = mappings.shadowVirtue?.character;
+function calculateProjectionShadow(otherSelfModel, meSelfModel, charNames) {
+  const shadowChar = charNames.shadow;
+  const shadowVirtueChar = charNames.shadowVirtue;
   
   const triggers = [];
   
-  // Shadow triggers
   if (shadowChar) {
     triggers.push({
       name: `${shadowChar} activation`,
@@ -249,9 +276,8 @@ function calculateProjectionShadow(otherSelfModel, meSelfModel) {
     });
   }
   
-  // If Me data exists, check for cross-projections
   if (meSelfModel) {
-    const meShadow = meSelfModel.coreMappings?.shadow?.character;
+    const meShadow = getCharacterName(meSelfModel.coreMappings?.shadow);
     if (meShadow && meShadow !== shadowChar) {
       triggers.push({
         name: 'Cross-shadow projection',
@@ -266,8 +292,8 @@ function calculateProjectionShadow(otherSelfModel, meSelfModel) {
     shadowVirtue: shadowVirtueChar,
     triggers,
     analysisBullets: [
-      `Shadow energy concentrated around ${shadowChar}`,
-      `Shadow virtue (what they suppress but value): ${shadowVirtueChar}`,
+      `Shadow energy concentrated around ${shadowChar || 'unconscious patterns'}`,
+      `Shadow virtue (what they suppress but value): ${shadowVirtueChar || 'hidden strength'}`,
       triggers.length > 0 ? `${triggers.length} identified projection triggers` : 'Low projection risk'
     ]
   };
@@ -276,10 +302,9 @@ function calculateProjectionShadow(otherSelfModel, meSelfModel) {
 /**
  * Calculate ego-persona mismatch
  */
-function calculateEgoPersonaMismatch(otherSelfModel, meSelfModel) {
-  const mappings = otherSelfModel.coreMappings || {};
-  const egoChar = mappings.ego?.character;
-  const personaChar = mappings.persona?.character;
+function calculateEgoPersonaMismatch(otherSelfModel, meSelfModel, charNames) {
+  const egoChar = charNames.ego;
+  const personaChar = charNames.persona;
   
   const mismatchLevel = egoChar === personaChar ? 'low' : 'moderate';
   
@@ -291,8 +316,8 @@ function calculateEgoPersonaMismatch(otherSelfModel, meSelfModel) {
       ? `Public ${personaChar} masks private ${egoChar}`
       : 'Relatively integrated public/private self',
     analysisBullets: [
-      `Core identity: ${egoChar}`,
-      `Social presentation: ${personaChar}`,
+      `Core identity: ${egoChar || 'central self'}`,
+      `Social presentation: ${personaChar || 'adaptive face'}`,
       mismatchLevel === 'low' ? 'Low mask complexity' : 'Noticeable gap between public and private self'
     ]
   };
@@ -301,21 +326,19 @@ function calculateEgoPersonaMismatch(otherSelfModel, meSelfModel) {
 /**
  * Calculate communication and conflict style
  */
-function calculateCommunicationConflict(otherSelfModel, meSelfModel, otherProfiles) {
-  const mappings = otherSelfModel.coreMappings || {};
+function calculateCommunicationConflict(otherSelfModel, meSelfModel, otherProfiles, charNames) {
   const tensions = otherSelfModel.tensions || [];
+  const feelingChar = charNames.feelingFunction;
   
-  // Determine conflict style from profiles
-  const egoProfile = otherProfiles.find(p => p.name === mappings.ego?.character);
   const conflictTendency = tensions.length > 10 ? 'avoidant' : tensions.length > 5 ? 'confrontational' : 'balanced';
   
   return {
     style: conflictTendency,
-    primaryMode: mappings.feelingFunction?.character || 'unknown',
+    primaryMode: feelingChar,
     tensionCount: tensions.length,
     repairStrategy: conflictTendency === 'avoidant' ? 'needs space before repair' : 'needs direct conversation',
     analysisBullets: [
-      `Communication anchored in ${mappings.feelingFunction?.character || 'unknown'} energy`,
+      `Communication anchored in ${feelingChar || 'feeling function'} energy`,
       `Conflict tendency: ${conflictTendency}`,
       tensions.length > 5 ? 'Multiple internal tensions affect external communication' : 'Relatively clear communication patterns'
     ]
@@ -325,20 +348,16 @@ function calculateCommunicationConflict(otherSelfModel, meSelfModel, otherProfil
 /**
  * Calculate needs, boundaries, and deal-breakers
  */
-function calculateNeedsBoundaries(otherSelfModel, meSelfModel, isRomantic) {
-  const mappings = otherSelfModel.coreMappings || {};
-  const costs = otherSelfModel.costsAndCompensations || {};
-  
+function calculateNeedsBoundaries(otherSelfModel, meSelfModel, isRomantic, charNames) {
   const needs = [];
   const boundaries = [];
   const dealBreakers = [];
   
-  // Core needs based on ego/persona
-  needs.push(`Recognition of ${mappings.ego?.character} core identity`);
-  needs.push(`Space for ${mappings.shadow?.character} integration`);
+  needs.push(`Recognition of ${charNames.ego || 'core'} identity`);
+  needs.push(`Space for ${charNames.shadow || 'shadow'} integration`);
   
   if (isRomantic) {
-    needs.push(`Emotional safety through ${mappings.eros?.character} dynamics`);
+    needs.push(`Emotional safety through ${charNames.eros || 'eros'} dynamics`);
     boundaries.push('Vulnerability requires earned trust');
     dealBreakers.push('Betrayal of intimate trust');
   } else {
@@ -362,22 +381,19 @@ function calculateNeedsBoundaries(otherSelfModel, meSelfModel, isRomantic) {
 /**
  * Calculate growth path together
  */
-function calculateGrowthPath(otherSelfModel, meSelfModel, tensions) {
+function calculateGrowthPath(otherSelfModel, meSelfModel, tensions, charNames) {
   const direction = otherSelfModel.individuationDirection || {};
-  const mappings = otherSelfModel.coreMappings || {};
   
   const growthAreas = [];
   
-  // Shadow integration
-  if (mappings.shadow?.character) {
+  if (charNames.shadow) {
     growthAreas.push({
       area: 'Shadow integration',
-      description: `Supporting integration of ${mappings.shadow?.character} qualities`,
+      description: `Supporting integration of ${charNames.shadow} qualities`,
       priority: 'high'
     });
   }
   
-  // Tension resolution
   if (tensions.length > 5) {
     growthAreas.push({
       area: 'Tension harmonization',
@@ -386,7 +402,6 @@ function calculateGrowthPath(otherSelfModel, meSelfModel, tensions) {
     });
   }
   
-  // Individuation support
   growthAreas.push({
     area: 'Mutual individuation',
     description: 'Supporting each other\'s authentic development',
@@ -408,29 +423,24 @@ function calculateGrowthPath(otherSelfModel, meSelfModel, tensions) {
 /**
  * Calculate red flags and repair signals
  */
-function calculateRedFlagsRepair(otherSelfModel, meSelfModel, tensions) {
-  const mappings = otherSelfModel.coreMappings || {};
-  
+function calculateRedFlagsRepair(otherSelfModel, meSelfModel, tensions, charNames) {
   const redFlags = [];
   const repairSignals = [];
   
-  // Shadow-based red flags
-  if (mappings.shadow?.character) {
+  if (charNames.shadow) {
     redFlags.push({
-      signal: `Persistent ${mappings.shadow?.character} acting out`,
+      signal: `Persistent ${charNames.shadow} acting out`,
       severity: 'warning',
       action: 'Address underlying need'
     });
   }
   
-  // Persona collapse
   redFlags.push({
     signal: 'Persona rigidity or collapse',
     severity: 'caution',
     action: 'Create safe space for authentic expression'
   });
   
-  // Repair signals
   repairSignals.push({
     signal: 'Return to authentic communication',
     meaning: 'Ready for reconnection'
@@ -456,30 +466,27 @@ function calculateRedFlagsRepair(otherSelfModel, meSelfModel, tensions) {
 /**
  * Generate situational guidance
  */
-function generateNextStepsSituations(field, bondingAxis, communicationConflict, isRomantic) {
+function generateNextStepsSituations(field, bondingAxis, communicationConflict, isRomantic, charNames) {
   const situations = [];
   
-  // Situation 1: Initial deepening
   situations.push({
     title: isRomantic ? 'Deepening Intimacy' : 'Building Trust',
     context: `When ready to deepen the ${isRomantic ? 'romantic' : 'platonic'} connection`,
     guidance: isRomantic 
-      ? `Honor ${bondingAxis.primaryAxis} energy while maintaining ${field.primaryDynamic} authenticity`
+      ? `Honor ${bondingAxis.primaryAxis || 'eros'} energy while maintaining ${field.primaryDynamic || 'authentic'} presence`
       : `Share vulnerably while respecting ${communicationConflict.style} communication style`
   });
   
-  // Situation 2: Conflict navigation
   situations.push({
     title: 'Navigating Disagreement',
     context: 'During moments of tension or conflict',
     guidance: communicationConflict.repairStrategy
   });
   
-  // Situation 3: Growth support
   situations.push({
     title: 'Supporting Growth',
     context: 'When partner/friend is going through change',
-    guidance: `Honor their ${field.primaryDynamic} nature while encouraging shadow integration`
+    guidance: `Honor their ${field.primaryDynamic || 'core'} nature while encouraging shadow integration`
   });
   
   return situations;
@@ -494,13 +501,19 @@ async function generateRelationshipNarrative(relationshipModel, otherProfiles, m
   const isRomantic = relationshipType === 'romantic';
   const hasMeData = !!meData.selfModel;
   
-  const characterNames = otherProfiles.map(p => p.name).join(', ');
+  // Get actual character names from profiles
+  const characterNames = otherProfiles.map(p => p.name || p.canonicalName).filter(Boolean).join(', ');
+  const charMap = relationshipModel.characterNames || {};
   
   const systemPrompt = `You are a Jungian relationship analyst creating mystical yet accessible narratives about relational dynamics.
 
+IMPORTANT: Use the ACTUAL character names provided, NOT generic labels like "Character 1" or "Character 4".
+
+Characters in this analysis: ${characterNames}
+
 Write in a style that is:
 - Evocative and archetypal, not clinical
-- Specific to the characters mentioned
+- Specific to the characters mentioned BY NAME
 - ${isRomantic ? 'Sensitive to romantic/intimate dynamics' : 'Focused on friendship and collaboration'}
 - Never prescriptive or advice-giving, only descriptive
 
@@ -509,8 +522,16 @@ ${hasMeData ? 'The user has provided their own character profile, so you can des
   const userPrompt = `Generate a relationship narrative based on this analysis:
 
 RELATIONSHIP TYPE: ${relationshipType}
-OTHER PERSON'S CHARACTERS: ${characterNames}
+CHARACTER NAMES: ${characterNames}
 ${hasMeData ? 'USER HAS PROVIDED THEIR OWN PROFILE (describe bidirectional dynamics)' : 'USER HAS NOT PROVIDED THEIR OWN PROFILE (focus on their patterns)'}
+
+CHARACTER MAPPINGS (use these EXACT names):
+- Ego (core identity): ${charMap.ego || 'Not assigned'}
+- Persona (social self): ${charMap.persona || 'Not assigned'}
+- Shadow (hidden aspects): ${charMap.shadow || 'Not assigned'}
+- Shadow Virtue: ${charMap.shadowVirtue || 'Not assigned'}
+- Feeling Function: ${charMap.feelingFunction || 'Not assigned'}  
+- Eros Axis: ${charMap.eros || 'Not assigned'}
 
 RELATIONSHIP MODEL:
 - Field type: ${relationshipModel.field.type}
@@ -520,32 +541,32 @@ RELATIONSHIP MODEL:
 - Communication style: ${relationshipModel.communicationConflict.style}
 - Tension count: ${relationshipModel._internal.otherTensionCount}
 
-Generate JSON with this structure:
+Generate JSON using the ACTUAL character names (${characterNames}), with this structure:
 {
   "myth": {
     "title": "A 4-6 word mythic title for this relationship",
-    "summary": "2-3 sentence poetic summary",
-    "story": "4-6 paragraphs telling the mythic story of this relationship dynamic",
+    "summary": "2-3 sentence poetic summary using character names",
+    "story": "4-6 paragraphs telling the mythic story referencing ${characterNames} by name",
     "themes": ["theme1", "theme2", "theme3"]
   },
   "relationalField": {
-    "summary": "2-3 sentences",
-    "story": "2-3 paragraphs about how these two fields interact"
+    "summary": "2-3 sentences about how ${charMap.ego || characterNames.split(',')[0]} and others interact",
+    "story": "2-3 paragraphs about how these character energies interact"
   },
   "attractionBonding": {
-    "summary": "2-3 sentences about ${isRomantic ? 'attraction/eros' : 'trust/connection'}",
+    "summary": "2-3 sentences about ${isRomantic ? 'attraction/eros' : 'trust/connection'} through ${charMap.eros || characterNames.split(',')[0]}",
     "story": "2-3 paragraphs about bonding dynamics"
   },
   "projectionShadow": {
-    "summary": "2-3 sentences about projection patterns",
+    "summary": "2-3 sentences about projection patterns around ${charMap.shadow || 'shadow'}",
     "story": "2-3 paragraphs about shadow triggers between them"
   },
   "egoPersonaMismatch": {
-    "summary": "2-3 sentences about public vs private self",
+    "summary": "2-3 sentences about ${charMap.ego || 'ego'} vs ${charMap.persona || 'persona'}",
     "story": "2-3 paragraphs about authenticity dynamics"
   },
   "communicationConflict": {
-    "summary": "2-3 sentences about communication patterns",
+    "summary": "2-3 sentences about communication through ${charMap.feelingFunction || 'feeling'}",
     "story": "2-3 paragraphs about how they handle conflict"
   },
   "needsBoundaries": {
@@ -567,7 +588,7 @@ Generate JSON with this structure:
   ]
 }
 
-Be specific to ${characterNames}. Use their actual stories and traits.`;
+CRITICAL: Reference characters BY NAME (${characterNames}), not as "Character 1", "Character 4", etc.`;
 
   try {
     const response = await client.chat.completions.create({
@@ -595,34 +616,55 @@ Be specific to ${characterNames}. Use their actual stories and traits.`;
 async function generateRelationshipExamples(relationshipModel, otherProfiles, meData, narrative) {
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   
-  const characterNames = otherProfiles.map(p => p.name).join(', ');
+  const characterNames = otherProfiles.map(p => p.name || p.canonicalName).filter(Boolean).join(', ');
   const hasMeData = !!meData.profile?.characters?.length;
+  const charMap = relationshipModel.characterNames || {};
   
-  const prompt = `Generate relationship examples from the works of: ${characterNames}
-${hasMeData ? 'Also include examples from user\'s characters if they exist in the profiles.' : ''}
+  const prompt = `Generate relationship examples from the works of these characters: ${characterNames}
 
-For each relationship module, provide 2-3 concrete examples from their actual films/books/stories that illustrate the dynamic.
+Character mappings:
+- Ego: ${charMap.ego}
+- Persona: ${charMap.persona}  
+- Shadow: ${charMap.shadow}
+- Feeling Function: ${charMap.feelingFunction}
+- Eros: ${charMap.eros}
+
+For each relationship module, provide 2-3 concrete examples from their ACTUAL films/books/stories that illustrate the dynamic. Use the character's real name in each example.
 
 Return JSON:
 {
-  "relationalField": [{"characterName": "...", "fromSide": "other", "reference": {"title": "...", "year": "...", "medium": "film"}, "situation": "...", "actions": ["..."], "outcomeAndCost": ["..."], "tier": "A"}],
-  "attractionBonding": [...],
-  "projectionShadow": [...],
+  "relationalField": [
+    {
+      "characterName": "${charMap.ego || otherProfiles[0]?.name}",
+      "fromSide": "other",
+      "reference": {"title": "Actual film/book title", "year": "year as string", "medium": "film|book|series"},
+      "situation": "Describe a specific scene",
+      "actions": ["Action 1", "Action 2"],
+      "outcomeAndCost": ["Outcome 1", "Cost 1"],
+      "tier": "A"
+    }
+  ],
+  "attractionBonding": [...similar structure with ${charMap.eros || 'eros character'}],
+  "projectionShadow": [...with ${charMap.shadow || 'shadow character'}],
   "egoPersonaMismatch": [...],
-  "communicationConflict": [...],
+  "communicationConflict": [...with ${charMap.feelingFunction || 'feeling character'}],
   "needsBoundaries": [...],
   "growthPath": [...],
   "redFlagsRepair": [...],
   "nextSteps": [...]
 }
 
-Use ONLY real scenes from their works. fromSide should be "other" for their characters, "me" for user's characters if applicable.`;
+RULES:
+- Use ONLY real scenes from real works
+- Each example must use a character name from: ${characterNames}
+- Reference actual titles, years, and media types
+- tier should be "A" for verified scenes, "B" for likely scenes`;
 
   try {
     const response = await client.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'Generate concrete examples from real films/books/stories. Always use real scenes.' },
+        { role: 'system', content: 'Generate concrete examples from real films/books/stories. Use actual character names and real scenes.' },
         { role: 'user', content: prompt }
       ],
       response_format: { type: 'json_object' },
@@ -631,10 +673,22 @@ Use ONLY real scenes from their works. fromSide should be "other" for their char
     });
     
     const content = response.choices[0].message.content;
-    return JSON.parse(content);
+    const examples = JSON.parse(content);
+    
+    // Ensure year is string
+    Object.values(examples).forEach(exampleList => {
+      if (Array.isArray(exampleList)) {
+        exampleList.forEach(ex => {
+          if (ex.reference?.year && typeof ex.reference.year !== 'string') {
+            ex.reference.year = String(ex.reference.year);
+          }
+        });
+      }
+    });
+    
+    return examples;
   } catch (error) {
     console.error('[RelationshipEngine] Example generation error:', error);
-    // Return empty examples on error
     return {
       relationalField: [],
       attractionBonding: [],
