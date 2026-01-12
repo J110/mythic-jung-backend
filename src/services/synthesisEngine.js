@@ -31,6 +31,15 @@ export function synthesizeSelfModel(profiles, assessmentAnswers = [], options = 
     throw new Error(`${MIN_CHARACTERS}-${MAX_CHARACTERS} character profiles required for synthesis (got ${profiles?.length || 0})`);
   }
 
+  // Check if character set has changed - reset previous synthesis if so
+  const currentCharacterIds = profiles.map(p => p.canonicalId || p.name).sort().join(',');
+  const previousCharacterIds = previousSynthesis?.meta?.characterIds;
+  
+  if (previousCharacterIds && previousCharacterIds !== currentCharacterIds) {
+    console.log('[Synthesis] Character set changed - resetting previous synthesis');
+    previousSynthesis = null;
+  }
+
   // === NEW: Process Assessment Signals ===
   const assessmentSignals = processAssessmentSignals(assessmentAnswers, profiles);
   console.log('[Synthesis] Assessment coverage:', assessmentSignals.coverage.overall.toFixed(2));
@@ -114,6 +123,7 @@ export function synthesizeSelfModel(profiles, assessmentAnswers = [], options = 
     meta: {
       synthesisVersion: 'v2',
       inputHash,
+      characterIds: currentCharacterIds,
       generatedAt: new Date().toISOString(),
       assessmentSignalsVersion: assessmentSignals.signalsVersion,
     },
