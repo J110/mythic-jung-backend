@@ -5,6 +5,7 @@ import { profileRouter } from './routes/profile.js';
 import { assessmentRouter } from './routes/assessments.js';
 import { generateRouter } from './routes/generate.js';
 import { outputRouter } from './routes/output.js';
+import { relationshipRouter } from './routes/relationship.js';
 
 dotenv.config();
 
@@ -44,11 +45,14 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API Routes
+// API Routes - Me domain
 app.use('/v1/profile', profileRouter);
 app.use('/v1/assessments', assessmentRouter);
 app.use('/v1/generate', generateRouter);
 app.use('/v1/output', outputRouter);
+
+// API Routes - Relationship domain (independent)
+app.use('/v1/relationship', relationshipRouter);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

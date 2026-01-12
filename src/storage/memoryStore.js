@@ -3,9 +3,14 @@
 
 class MemoryStore {
   constructor() {
-    this.profiles = new Map(); // userId -> profile
-    this.outputs = new Map(); // userId -> GeneratedOutput
+    // Me domain storage
+    this.profiles = new Map(); // userId -> profile (Me characters)
+    this.outputs = new Map(); // userId -> GeneratedOutput (Me output)
     this.assessments = new Map(); // userId -> assessment answers
+    
+    // Relationship domain storage (independent)
+    this.relationshipSets = new Map(); // userId -> RelationshipCharacterSet
+    this.relationshipOutputs = new Map(); // userId -> RelationshipOutput
   }
 
   // Profile operations
@@ -66,6 +71,54 @@ class MemoryStore {
       profile: this.getProfile(userId),
       assessments: this.getAssessmentAnswers(userId),
       cachedOutput: this.getOutput(userId),
+    };
+  }
+
+  // ============================================================================
+  // RELATIONSHIP STORAGE (Independent from Me)
+  // ============================================================================
+
+  // Relationship set operations
+  saveRelationshipSet(userId, relationshipSet) {
+    this.relationshipSets.set(userId, {
+      ...relationshipSet,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  getRelationshipSet(userId) {
+    return this.relationshipSets.get(userId) || null;
+  }
+
+  clearRelationshipSet(userId) {
+    this.relationshipSets.delete(userId);
+    this.relationshipOutputs.delete(userId);
+  }
+
+  // Relationship output operations
+  saveRelationshipOutput(userId, output) {
+    this.relationshipOutputs.set(userId, {
+      ...output,
+      cachedAt: new Date().toISOString(),
+    });
+  }
+
+  getRelationshipOutput(userId) {
+    return this.relationshipOutputs.get(userId) || null;
+  }
+
+  clearRelationshipOutput(userId) {
+    this.relationshipOutputs.delete(userId);
+  }
+
+  // Get all relationship data for a user
+  getRelationshipData(userId) {
+    return {
+      relationshipSet: this.getRelationshipSet(userId),
+      cachedOutput: this.getRelationshipOutput(userId),
+      // Optional: include Me data if available (for enrichment)
+      meProfile: this.getProfile(userId),
+      meSelfModel: this.getOutput(userId)?.selfModel || null,
     };
   }
 }
