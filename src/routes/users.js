@@ -126,6 +126,49 @@ usersRouter.get('/:userId/status', async (req, res) => {
 });
 
 /**
+ * GET /v1/users/:userId/sync
+ * Get full user state for syncing (output, relationship, etc.)
+ * Used when restoring session from local storage
+ */
+usersRouter.get('/:userId/sync', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const user = memoryStore.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const meOutput = memoryStore.getMeOutput(userId);
+    const relationshipOutput = memoryStore.getRelationshipOutput(userId);
+    const relationshipSet = memoryStore.getRelationshipSet(userId);
+    const tonePreference = memoryStore.getTonePreference(userId);
+    
+    console.log(`[Users] Sync requested for user: ${user.username} (${userId})`);
+    console.log(`[Users] Has meOutput: ${!!meOutput?.story}, Has relationshipOutput: ${!!relationshipOutput?.myth}`);
+    
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName,
+      },
+      meOutput: meOutput || null,
+      relationshipOutput: relationshipOutput || null,
+      relationshipSettings: relationshipSet ? {
+        enabled: true,
+        type: relationshipSet.relationshipType || 'romantic',
+      } : null,
+      tonePreference: tonePreference || 'plain',
+    });
+    
+  } catch (error) {
+    console.error('[Users] Sync error:', error);
+    res.status(500).json({ error: 'Failed to sync user data', details: error.message });
+  }
+});
+
+/**
  * DELETE /v1/users/:userId/data
  * Clear all user data (for starting fresh)
  */
