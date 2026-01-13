@@ -97,12 +97,15 @@ export function synthesizeSelfModel(profiles, assessmentAnswers = [], options = 
   );
 
   // Step 8: Compute identification dynamics (Center/Orbit/Compensation)
+  // V3: Now uses evidence-based scoring with soft duplication penalty
   const identificationDynamics = computeIdentificationDynamics(
     profiles, 
     normalizedWeights, 
     coreMappings, 
     assessmentAnswers, 
-    tensions
+    tensions,
+    assessmentSignals,      // Pass assessment signals for scoring
+    options.characterReferences || [] // Pass character references for phase fit
   );
 
   // Create input hash for caching
@@ -893,33 +896,534 @@ function calculateSectionAttribution(profiles, weights, coreMappings) {
   };
 }
 
+// ============================================================================
+// V3: EVIDENCE-BASED IDENTIFICATION (No Hard De-duplication)
+// ============================================================================
+
+// Scoring thresholds (from spec)
+const SCORING_CONFIG = {
+  STRONG_SCORE: 0.80,       // No penalty when score >= this
+  STRONG_MARGIN: 0.12,      // No penalty when margin >= this
+  EXAMPLE_MIN: 0.70,        // No penalty when example support >= this
+  TIE_MARGIN: 0.06,         // Apply penalty when margin <= this
+  REPEAT_LAMBDA: 0.05,      // Penalty multiplier
+  SECONDARY_INCLUDE_MARGIN: 0.10, // Include secondary when margin <= this
+  DOMINANCE_ROLES: 3,       // Roles needed for dominant archetype
+};
+
+/**
+ * Compute role score for a character in a specific role
+ * Uses multiple evidence features (all normalized 0..1)
+ */
+function computeRoleScore(profile, role, weights, profileIndex, assessmentSignals, characterReferences) {
+  const features = {
+    roleTraitFit: computeRoleTraitFit(profile, role),
+    resonanceFit: computeResonanceFit(profile, role, assessmentSignals),
+    assessmentFit: computeAssessmentFit(profile, role, assessmentSignals),
+    referencePhaseFit: computeReferencePhaseFit(profile, role, characterReferences),
+    exampleSupport: computeExampleSupport(profile, role),
+    weightFit: weights[profileIndex] || 0, // Base weight from synthesis
+  };
+  
+  // Weighted sum (all features normalized 0..1)
+  const featureWeights = {
+    roleTraitFit: 0.30,
+    resonanceFit: 0.20,
+    assessmentFit: 0.15,
+    referencePhaseFit: 0.10,
+    exampleSupport: 0.10,
+    weightFit: 0.15,
+  };
+  
+  let score = 0;
+  let evidenceFlags = [];
+  
+  Object.entries(features).forEach(([key, value]) => {
+    score += featureWeights[key] * value;
+    if (value >= 0.7) {
+      evidenceFlags.push(key);
+    }
+  });
+  
+  return {
+    score: Math.min(1.0, score),
+    features,
+    evidenceFlags,
+  };
+}
+
+/**
+ * Compute trait fit for a role (from CharacterProfile/Discovery)
+ */
+function computeRoleTraitFit(profile, role) {
+  if (!profile) return 0;
+  
+  const roleTraitMap = {
+    ego: ['Hero', 'Leader', 'Protagonist', 'Driven', 'Competent'],
+    persona: ['Charming', 'Adaptive', 'Performer', 'Social', 'Mask'],
+    shadow: ['Villain', 'Dark', 'Repressed', 'Hidden', 'Destructive'],
+    shadowVirtue: ['Noble', 'Honorable', 'Virtue', 'Principled', 'Rejected'],
+    feelingFunction: ['Emotional', 'Intuitive', 'Relational', 'Empathic', 'Heart'],
+    erosAxis: ['Passionate', 'Desire', 'Creative', 'Vitality', 'Life-force'],
+  };
+  
+  const targetTraits = roleTraitMap[role] || [];
+  const profileTraits = [
+    ...(profile.archetypeSignals?.primaryArchetypes || []),
+    ...(profile.behavioralTraits?.strengths || []),
+    ...(profile.dominantEnergy || []),
+  ].map(t => t?.toLowerCase() || '');
+  
+  let matches = 0;
+  targetTraits.forEach(trait => {
+    if (profileTraits.some(pt => pt.includes(trait.toLowerCase()))) {
+      matches++;
+    }
+  });
+  
+  return Math.min(1.0, matches / Math.max(targetTraits.length, 1));
+}
+
+/**
+ * Compute resonance fit (situations, emotions, admire/reject)
+ */
+function computeResonanceFit(profile, role, assessmentSignals) {
+  if (!assessmentSignals?.characterSignalMatrix) return 0.5;
+  
+  const charSignals = assessmentSignals.characterSignalMatrix[profile?.name];
+  if (!charSignals) return 0.5;
+  
+  // Role-specific resonance signals
+  const roleResonanceMap = {
+    ego: ['dominantNow', 'libidinallyhigh'],
+    persona: ['sociallyactivated', 'performative'],
+    shadow: ['shadowactivated', 'triggered'],
+    shadowVirtue: ['admired', 'rejected'],
+    feelingFunction: ['emotionallyengaged', 'relational'],
+    erosAxis: ['eros', 'desire', 'passion'],
+  };
+  
+  const signals = roleResonanceMap[role] || [];
+  let signalScore = 0;
+  
+  signals.forEach(signal => {
+    if (charSignals[signal] || charSignals[signal.toLowerCase()]) {
+      signalScore += 0.25;
+    }
+  });
+  
+  return Math.min(1.0, 0.5 + signalScore);
+}
+
+/**
+ * Compute assessment fit
+ */
+function computeAssessmentFit(profile, role, assessmentSignals) {
+  if (!assessmentSignals?.coverage?.overall) return 0.5; // Neutral if no assessments
+  
+  const coverage = assessmentSignals.coverage.overall;
+  if (coverage < 0.1) return 0.5; // Neutral for low coverage
+  
+  // Check if assessment explicitly selected this character for this role
+  const charSignals = assessmentSignals.characterSignalMatrix?.[profile?.name];
+  if (!charSignals) return 0.5;
+  
+  // Role-specific assessment mappings
+  const roleAssessmentMap = {
+    ego: 'egoSelected',
+    persona: 'personaSelected',
+    shadow: 'shadowSelected',
+    feelingFunction: 'feelingSelected',
+    erosAxis: 'erosSelected',
+  };
+  
+  if (charSignals[roleAssessmentMap[role]]) return 0.9;
+  
+  return 0.5;
+}
+
+/**
+ * Compute reference phase fit
+ */
+function computeReferencePhaseFit(profile, role, characterReferences) {
+  if (!characterReferences || characterReferences.length === 0) return 0.5;
+  
+  const ref = characterReferences.find(r => 
+    r.canonicalId === profile?.canonicalId || 
+    r.characterName === profile?.name
+  );
+  
+  if (!ref) return 0.5;
+  
+  // Check phase alignment
+  if (ref.phaseId) {
+    const phaseRoleMap = {
+      phase_hero: ['ego'],
+      phase_dark: ['shadow'],
+      phase_growth: ['shadowVirtue', 'individuation'],
+      phase_relational: ['feelingFunction', 'erosAxis'],
+    };
+    
+    for (const [phase, roles] of Object.entries(phaseRoleMap)) {
+      if (ref.phaseId.includes(phase) && roles.includes(role)) {
+        return 0.85;
+      }
+    }
+  }
+  
+  return 0.5;
+}
+
+/**
+ * Compute example support (availability of role-specific examples)
+ */
+function computeExampleSupport(profile, role) {
+  if (!profile) return 0.3;
+  
+  // Check if profile has rich content
+  const hasRichContent = 
+    (profile.behavioralTraits?.strengths?.length > 2) &&
+    (profile.archetypeSignals?.primaryArchetypes?.length > 0);
+  
+  if (hasRichContent) return 0.8;
+  if (profile.behavioralTraits?.strengths?.length > 0) return 0.6;
+  
+  return 0.4;
+}
+
 /**
  * Compute Identification Dynamics (Center/Orbit/Compensation) for each archetype
- * This provides stable, deterministic mappings that don't change between runs
+ * V3: Evidence-based selection with soft duplication penalty
  */
-function computeIdentificationDynamics(profiles, weights, coreMappings, assessmentAnswers, tensions) {
+function computeIdentificationDynamics(profiles, weights, coreMappings, assessmentAnswers, tensions, assessmentSignals = {}, characterReferences = []) {
   const dynamics = {};
   const archetypes = ['ego', 'persona', 'shadow', 'shadowVirtue', 'feelingFunction', 'erosAxis'];
   
-  archetypes.forEach(archetype => {
-    const mapping = coreMappings[archetype];
-    if (!mapping) return;
+  // Track role assignments for repeat penalty (soft, not hard constraint)
+  const roleUsageTracker = new Map();
+  profiles.forEach(p => {
+    roleUsageTracker.set(p.name, { count: 0, roles: [], scores: [] });
+  });
+  
+  // Score all characters for all roles
+  const roleScores = {};
+  archetypes.forEach(role => {
+    roleScores[role] = profiles.map((profile, idx) => ({
+      character: profile.name,
+      characterId: profile.canonicalId || profile.name,
+      ...computeRoleScore(profile, role, weights, idx, assessmentSignals, characterReferences),
+    })).sort((a, b) => b.score - a.score);
+  });
+  
+  // Debug: Log role scores (top 3 per role)
+  console.log('[Synthesis] Role scores (top 3 per role):');
+  archetypes.forEach(role => {
+    const top3 = roleScores[role].slice(0, 3).map(s => `${s.character}:${s.score.toFixed(2)}`).join(', ');
+    console.log(`  ${role}: ${top3}`);
+  });
+  
+  // Compute dynamics with evidence-based selection
+  archetypes.forEach(role => {
+    const scores = roleScores[role];
+    const top = scores[0];
+    const second = scores[1];
+    const margin = top.score - (second?.score || 0);
     
-    dynamics[archetype] = {
-      center: computeCenter(profiles, weights, archetype, mapping, assessmentAnswers),
-      orbit: computeOrbit(profiles, weights, archetype, assessmentAnswers, tensions),
-      compensations: computeCompensations(profiles, weights, archetype, assessmentAnswers),
+    // Determine if penalty should apply
+    const shouldApplyPenalty = shouldApplyRepeatPenalty(top, margin, roleUsageTracker);
+    
+    // Apply penalty if needed
+    let primary = top;
+    let secondary = [];
+    
+    if (shouldApplyPenalty) {
+      // Re-score with penalty
+      const adjustedScores = scores.map(s => ({
+        ...s,
+        adjustedScore: s.score - computeRepeatPenalty(s.character, roleUsageTracker),
+      })).sort((a, b) => b.adjustedScore - a.adjustedScore);
+      
+      primary = adjustedScores[0];
+      console.log(`[Synthesis] Penalty applied for ${role}: ${top.character} -> ${primary.character}`);
+    }
+    
+    // Include secondary if margin is small
+    if (margin <= SCORING_CONFIG.SECONDARY_INCLUDE_MARGIN && second) {
+      secondary.push({
+        characterId: second.characterId,
+        character: second.character,
+        confidence: second.score,
+        evidenceFlags: second.evidenceFlags,
+      });
+    }
+    
+    // Record role assignment
+    const tracker = roleUsageTracker.get(primary.character);
+    if (tracker) {
+      tracker.count++;
+      tracker.roles.push(role);
+      tracker.scores.push(primary.score);
+    }
+    
+    // Build result with primary + secondary format
+    dynamics[role] = {
+      primary: {
+        characterId: primary.characterId,
+        character: primary.character,
+        confidence: parseFloat(primary.score.toFixed(2)),
+        evidenceFlags: primary.evidenceFlags,
+      },
+      secondary,
+      center: buildCenterFromEvidence(profiles, primary, role, coreMappings[role], assessmentAnswers),
+      orbit: computeOrbitWithEvidence(profiles, weights, role, assessmentAnswers, tensions, roleScores[role]),
+      compensations: [], // Simplified for now
+      roleConfidence: computeRoleConfidence(primary.score, margin, primary.evidenceFlags),
     };
   });
+  
+  // Detect dominant archetype
+  const dominantArchetype = detectDominantArchetype(roleUsageTracker, archetypes);
+  
+  // Log final stats
+  console.log('[Synthesis] Final role assignments:');
+  roleUsageTracker.forEach((tracker, name) => {
+    if (tracker.count > 0) {
+      console.log(`  ${name}: ${tracker.count} roles (${tracker.roles.join(', ')})`);
+    }
+  });
+  
+  if (dominantArchetype.enabled) {
+    console.log(`[Synthesis] DOMINANT ARCHETYPE: ${dominantArchetype.characterName} (${dominantArchetype.roles.join(', ')})`);
+  }
+  
+  // Add dominant archetype to dynamics
+  dynamics._dominantArchetype = dominantArchetype;
   
   return dynamics;
 }
 
 /**
+ * Determine if repeat penalty should be applied
+ * Only apply in weak/tied cases
+ */
+function shouldApplyRepeatPenalty(top, margin, roleUsageTracker) {
+  const { STRONG_SCORE, STRONG_MARGIN, EXAMPLE_MIN, TIE_MARGIN } = SCORING_CONFIG;
+  
+  // No penalty if evidence is strong
+  if (top.score >= STRONG_SCORE) return false;
+  if (margin >= STRONG_MARGIN) return false;
+  if (top.features?.exampleSupport >= EXAMPLE_MIN) return false;
+  
+  // Check if already assigned
+  const tracker = roleUsageTracker.get(top.character);
+  if (!tracker || tracker.count === 0) return false;
+  
+  // Apply penalty only for weak/tied cases
+  return margin <= TIE_MARGIN;
+}
+
+/**
+ * Compute repeat penalty
+ */
+function computeRepeatPenalty(charName, roleUsageTracker) {
+  const { REPEAT_LAMBDA } = SCORING_CONFIG;
+  const tracker = roleUsageTracker.get(charName);
+  if (!tracker) return 0;
+  
+  const count = tracker.count;
+  if (count <= 1) return 0;
+  if (count === 2) return REPEAT_LAMBDA * 0.5;
+  if (count === 3) return REPEAT_LAMBDA * 1.0;
+  return REPEAT_LAMBDA * 1.5;
+}
+
+/**
+ * Compute role confidence from score and margin
+ */
+function computeRoleConfidence(score, margin, evidenceFlags) {
+  let confidence = score;
+  
+  // Boost for strong margin
+  if (margin >= 0.15) confidence = Math.min(1.0, confidence + 0.1);
+  
+  // Boost for multiple evidence flags
+  if (evidenceFlags.length >= 3) confidence = Math.min(1.0, confidence + 0.05);
+  
+  return parseFloat(confidence.toFixed(2));
+}
+
+/**
+ * Detect if a single character dominates multiple roles
+ */
+function detectDominantArchetype(roleUsageTracker, archetypes) {
+  const { DOMINANCE_ROLES } = SCORING_CONFIG;
+  
+  let dominant = null;
+  
+  roleUsageTracker.forEach((tracker, name) => {
+    if (tracker.count >= DOMINANCE_ROLES) {
+      if (!dominant || tracker.count > dominant.count) {
+        dominant = {
+          characterName: name,
+          count: tracker.count,
+          roles: tracker.roles,
+          scores: tracker.scores,
+        };
+      }
+    }
+  });
+  
+  if (dominant) {
+    // Determine reason flags
+    const avgScore = dominant.scores.reduce((a, b) => a + b, 0) / dominant.scores.length;
+    const reasonFlags = [];
+    
+    if (avgScore >= SCORING_CONFIG.STRONG_SCORE) reasonFlags.push('strong_score');
+    if (dominant.count >= 4) reasonFlags.push('high_role_count');
+    
+    return {
+      enabled: true,
+      characterCanonicalId: dominant.characterName,
+      characterName: dominant.characterName,
+      roles: dominant.roles,
+      reasonFlags,
+    };
+  }
+  
+  return { enabled: false };
+}
+
+/**
+ * Build center from evidence-based selection
+ */
+function buildCenterFromEvidence(profiles, primary, role, mapping, assessmentAnswers) {
+  const profile = profiles.find(p => p.name === primary.character);
+  
+  const traitSignals = [];
+  if (profile?.archetypeSignals?.primaryArchetypes?.length) {
+    traitSignals.push(...profile.archetypeSignals.primaryArchetypes.slice(0, 2));
+  }
+  if (profile?.behavioralTraits?.strengths?.length) {
+    traitSignals.push(profile.behavioralTraits.strengths[0]);
+  }
+  
+  return {
+    label: `Primary ${role.charAt(0).toUpperCase() + role.slice(1)} Position`,
+    characters: [primary.character],
+    confidence: primary.confidence,
+    rationale: {
+      traitSignals: [...new Set(traitSignals)].slice(0, 5),
+      assessmentRefs: [],
+      exampleRefs: [],
+      evidenceFlags: primary.evidenceFlags,
+    },
+  };
+}
+
+/**
+ * Compute orbit entries with evidence-based scoring
+ */
+function computeOrbitWithEvidence(profiles, weights, archetype, assessmentAnswers, tensions, roleScores) {
+  const orbit = [];
+  const usedInOrbit = new Set();
+  
+  // Get secondary candidates from role scores
+  const candidates = roleScores.slice(1, 4); // 2nd-4th place
+  
+  const orbitTriggers = getOrbitTriggersForArchetype(archetype);
+  
+  orbitTriggers.forEach(trigger => {
+    // Find best candidate not yet used in orbit
+    const candidate = candidates.find(c => !usedInOrbit.has(c.character));
+    if (!candidate) return;
+    
+    usedInOrbit.add(candidate.character);
+    
+    const profile = profiles.find(p => p.name === candidate.character);
+    const costRisk = profile?.behavioralTraits?.liabilities?.[0] 
+      ? `Risk of ${profile.behavioralTraits.liabilities[0].toLowerCase()}`
+      : 'Risk of overextension';
+    
+    orbit.push({
+      // trigger must be an object with { name, tags } for Flutter compatibility
+      trigger: {
+        name: trigger.triggerName,
+        tags: trigger.tags || [],
+      },
+      triggerName: trigger.triggerName, // Keep for backwards compat
+      tags: trigger.tags,
+      character: candidate.character,
+      characters: [candidate.character],
+      confidence: parseFloat(candidate.score.toFixed(2)),
+      costRisk,
+      evidenceFlags: candidate.evidenceFlags,
+    });
+  });
+  
+  return orbit;
+}
+
+/**
+ * Get orbit triggers for an archetype
+ */
+function getOrbitTriggersForArchetype(archetype) {
+  const triggers = {
+    'ego': [
+      { triggerName: 'Under Time Pressure', tags: ['time', 'stakes', 'urgency'] },
+      { triggerName: 'When Depleted', tags: ['fatigue', 'burnout', 'stress'] },
+    ],
+    'persona': [
+      { triggerName: 'In High-Stakes Social Settings', tags: ['social', 'performance'] },
+      { triggerName: 'When Seeking Approval', tags: ['validation', 'recognition'] },
+    ],
+    'shadow': [
+      { triggerName: 'When Triggered by Injustice', tags: ['anger', 'justice'] },
+      { triggerName: 'When Boundaries Are Crossed', tags: ['violation', 'limits'] },
+    ],
+    'shadowVirtue': [
+      { triggerName: 'When Values Are Challenged', tags: ['integrity', 'principles'] },
+    ],
+    'feelingFunction': [
+      { triggerName: 'In Intimate Settings', tags: ['closeness', 'vulnerability'] },
+    ],
+    'erosAxis': [
+      { triggerName: 'When Pursuing Passion', tags: ['desire', 'creativity'] },
+    ],
+  };
+  
+  return triggers[archetype] || [];
+}
+
+/**
+ * Check if a character can take another role based on diversity constraints
+ */
+function canTakeRole(charName, roleUsageTracker, maxRoles, confidence = 0.5) {
+  const tracker = roleUsageTracker.get(charName);
+  if (!tracker) return true;
+  
+  // Allow exceeding max if confidence is very high
+  if (confidence >= 0.85) return true;
+  
+  return tracker.count < maxRoles;
+}
+
+/**
+ * Record that a character has taken a role
+ */
+function recordRole(charName, roleName, roleUsageTracker) {
+  const tracker = roleUsageTracker.get(charName);
+  if (tracker) {
+    tracker.count++;
+    tracker.roles.push(roleName);
+  }
+}
+
+/**
  * Compute the CENTER (stable primary position) for an archetype
  * Center = top character(s) by weight, with threshold rules
+ * V2: With diversity constraint
  */
-function computeCenter(profiles, weights, archetype, mapping, assessmentAnswers) {
+function computeCenterWithDiversity(profiles, weights, archetype, mapping, assessmentAnswers, roleUsageTracker, maxRoles, highConfidenceThreshold) {
   const primaryCharacter = mapping.characterRefs?.[0];
   if (!primaryCharacter) return null;
   
@@ -927,14 +1431,26 @@ function computeCenter(profiles, weights, archetype, mapping, assessmentAnswers)
   const primaryWeight = primaryIndex >= 0 ? weights[primaryIndex] : 0;
   
   // Find secondary candidates within 0.12 weight gap
+  // DIVERSITY: Skip candidates who have hit their role limit
   const WEIGHT_GAP_THRESHOLD = 0.12;
   const secondaryCandidates = profiles
     .map((p, idx) => ({ name: p.name, weight: weights[idx], index: idx }))
-    .filter(c => c.name !== primaryCharacter && Math.abs(c.weight - primaryWeight) <= WEIGHT_GAP_THRESHOLD)
+    .filter(c => {
+      if (c.name === primaryCharacter) return false;
+      if (Math.abs(c.weight - primaryWeight) > WEIGHT_GAP_THRESHOLD) return false;
+      // Check diversity constraint
+      if (!canTakeRole(c.name, roleUsageTracker, maxRoles, c.weight)) return false;
+      return true;
+    })
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 1); // Max 1 secondary
   
   const characters = [primaryCharacter, ...secondaryCandidates.map(c => c.name)];
+  
+  // Record roles taken
+  secondaryCandidates.forEach(c => {
+    recordRole(c.name, `${archetype}_secondary`, roleUsageTracker);
+  });
   
   // Determine confidence based on weight dominance
   const weightSum = characters.reduce((sum, name) => {
@@ -988,12 +1504,21 @@ function computeCenter(profiles, weights, archetype, mapping, assessmentAnswers)
   };
 }
 
+// Legacy function for backwards compatibility
+function computeCenter(profiles, weights, archetype, mapping, assessmentAnswers) {
+  const dummyTracker = new Map();
+  profiles.forEach(p => dummyTracker.set(p.name, { count: 0, roles: [] }));
+  return computeCenterWithDiversity(profiles, weights, archetype, mapping, assessmentAnswers, dummyTracker, 999, 0.5);
+}
+
 /**
  * Compute ORBIT entries (contextual shifts) for an archetype
  * Derived from specific assessments and tension rules
+ * V2: With diversity constraint - prevents same character appearing in all orbits
  */
-function computeOrbit(profiles, weights, archetype, assessmentAnswers, tensions) {
+function computeOrbitWithDiversity(profiles, weights, archetype, assessmentAnswers, tensions, roleUsageTracker, maxRoles) {
   const orbit = [];
+  const usedInThisOrbit = new Set(); // Track characters used in this archetype's orbit
   
   // Define trigger mappings from assessments
   const orbitTriggers = {
@@ -1037,20 +1562,50 @@ function computeOrbit(profiles, weights, archetype, assessmentAnswers, tensions)
         p.name.toLowerCase() === charId.toLowerCase()
       );
       if (orbitProfile) {
-        orbitCharacter = orbitProfile.name;
+        // DIVERSITY CHECK: Only use if not at limit and not already used in this orbit
+        if (canTakeRole(orbitProfile.name, roleUsageTracker, maxRoles) && !usedInThisOrbit.has(orbitProfile.name)) {
+          orbitCharacter = orbitProfile.name;
+        }
       }
     }
     
-    // Fall back to tension pair characters
+    // Fall back to tension pair characters with diversity check
     if (!orbitCharacter && tensions.length > 0) {
-      const tensionChars = tensions[0].polarityPair;
-      if (tensionChars?.length > 1) {
-        orbitCharacter = tensionChars[1];
-        orbitProfile = profiles.find(p => p.name === orbitCharacter);
+      // Try each tension pair character that hasn't been overused
+      for (const tension of tensions) {
+        const tensionChars = tension.polarityPair || [];
+        for (let i = 1; i < tensionChars.length; i++) { // Start from index 1
+          const candidate = tensionChars[i];
+          if (!usedInThisOrbit.has(candidate) && canTakeRole(candidate, roleUsageTracker, maxRoles)) {
+            orbitCharacter = candidate;
+            orbitProfile = profiles.find(p => p.name === candidate);
+            break;
+          }
+        }
+        if (orbitCharacter) break;
+      }
+    }
+    
+    // Final fallback: pick any profile not at limit
+    if (!orbitCharacter) {
+      const sortedByWeight = profiles
+        .map((p, idx) => ({ profile: p, weight: weights[idx] }))
+        .sort((a, b) => b.weight - a.weight);
+      
+      for (const { profile } of sortedByWeight) {
+        if (!usedInThisOrbit.has(profile.name) && canTakeRole(profile.name, roleUsageTracker, maxRoles)) {
+          orbitCharacter = profile.name;
+          orbitProfile = profile;
+          break;
+        }
       }
     }
     
     if (!orbitCharacter) return;
+    
+    // Record usage
+    usedInThisOrbit.add(orbitCharacter);
+    recordRole(orbitCharacter, `${archetype}_orbit`, roleUsageTracker);
     
     // Derive cost risk from profile liabilities
     const costRisk = orbitProfile?.behavioralTraits?.liabilities?.[0] 
@@ -1212,6 +1767,137 @@ function computeCompensations(profiles, weights, archetype, assessmentAnswers) {
   compensations.sort((a, b) => a.name.localeCompare(b.name));
   
   return compensations.slice(0, 3); // Max 3 compensations
+}
+
+/**
+ * Compute COMPENSATIONS with diversity constraint
+ */
+function computeCompensationsWithDiversity(profiles, weights, archetype, assessmentAnswers, roleUsageTracker, maxRoles) {
+  const compensations = [];
+  const usedInCompensations = new Set();
+  
+  // Find relevant assessments
+  const costAnswer = assessmentAnswers.find(a => a.assessmentType === 'COST_COMPENSATION');
+  const shadowAnswer = assessmentAnswers.find(a => a.assessmentType === 'SHADOW_PROXIMITY');
+  
+  // Compensation patterns by archetype
+  const compensationPatterns = {
+    'ego': [
+      { name: 'Withdrawal into Control', when: 'when overwhelmed by demands' },
+      { name: 'Overwork and Burnout', when: 'when purpose feels threatened' },
+    ],
+    'persona': [
+      { name: 'Mask Hardening', when: 'when authenticity feels unsafe' },
+      { name: 'People-Pleasing Spiral', when: 'when acceptance is uncertain' },
+    ],
+    'shadow': [
+      { name: 'Projection onto Others', when: 'when disowned traits surface' },
+      { name: 'Reactive Eruption', when: 'when boundaries are repeatedly crossed' },
+    ],
+    'shadowVirtue': [
+      { name: 'Virtue Suppression', when: 'when the gift feels dangerous' },
+    ],
+    'feelingFunction': [
+      { name: 'Emotional Withdrawal', when: 'when feelings become overwhelming' },
+      { name: 'Over-Intellectualization', when: 'when emotional safety is compromised' },
+    ],
+    'erosAxis': [
+      { name: 'Connection Avoidance', when: 'when intimacy feels threatening' },
+    ],
+  };
+  
+  const patterns = compensationPatterns[archetype] || [];
+  
+  patterns.forEach(pattern => {
+    let compensationCharacter = null;
+    let compensationProfile = null;
+    
+    // First try: assessment-selected character with diversity check
+    if (shadowAnswer?.selectedCharacterIds?.length) {
+      const charId = shadowAnswer.selectedCharacterIds[0];
+      compensationProfile = profiles.find(p => 
+        (p.canonicalId === charId || p.name === charId || p.name.toLowerCase() === charId.toLowerCase()) &&
+        !usedInCompensations.has(p.name) &&
+        canTakeRole(p.name, roleUsageTracker, maxRoles)
+      );
+      if (compensationProfile) {
+        compensationCharacter = compensationProfile.name;
+      }
+    }
+    
+    // Second try: profile with shadow archetypes (with diversity check)
+    if (!compensationCharacter) {
+      compensationProfile = profiles.find(p => 
+        p.archetypeSignals?.shadowArchetypes?.length > 0 &&
+        !usedInCompensations.has(p.name) &&
+        canTakeRole(p.name, roleUsageTracker, maxRoles)
+      );
+      if (compensationProfile) {
+        compensationCharacter = compensationProfile.name;
+      }
+    }
+    
+    // Third try: any profile not at limit
+    if (!compensationCharacter) {
+      const sortedByWeight = profiles
+        .map((p, idx) => ({ profile: p, weight: weights[idx] }))
+        .sort((a, b) => b.weight - a.weight);
+      
+      for (const { profile } of sortedByWeight) {
+        if (!usedInCompensations.has(profile.name) && canTakeRole(profile.name, roleUsageTracker, maxRoles)) {
+          compensationCharacter = profile.name;
+          compensationProfile = profile;
+          break;
+        }
+      }
+    }
+    
+    if (!compensationCharacter) return;
+    
+    // Record usage
+    usedInCompensations.add(compensationCharacter);
+    recordRole(compensationCharacter, `${archetype}_compensation`, roleUsageTracker);
+    
+    // Derive expression behaviors
+    const expression = [];
+    if (compensationProfile?.behavioralTraits?.liabilities?.length) {
+      expression.push(...compensationProfile.behavioralTraits.liabilities.slice(0, 2));
+    }
+    if (expression.length === 0) {
+      expression.push('Increased defensiveness', 'Loss of perspective');
+    }
+    
+    const returnPath = compensationProfile?.behavioralTraits?.strengths?.[0]
+      ? `Reconnecting with ${compensationProfile.behavioralTraits.strengths[0].toLowerCase()}`
+      : 'Returning to core values and practices';
+    
+    compensations.push({
+      name: pattern.name,
+      when: pattern.when,
+      expression,
+      risk: 'Prolonged imbalance leads to exhaustion and loss of self',
+      returnPath,
+      characters: [compensationCharacter],
+      rationale: {
+        assessmentRefs: [
+          ...(costAnswer ? [costAnswer.questionId || 'COST_COMPENSATION'] : []),
+          ...(shadowAnswer ? [shadowAnswer.questionId || 'SHADOW_PROXIMITY'] : []),
+        ].slice(0, 2),
+        exampleRefs: [],
+      },
+    });
+  });
+  
+  compensations.sort((a, b) => a.name.localeCompare(b.name));
+  
+  return compensations.slice(0, 3);
+}
+
+// Legacy computeOrbit for backwards compatibility
+function computeOrbit(profiles, weights, archetype, assessmentAnswers, tensions) {
+  const dummyTracker = new Map();
+  profiles.forEach(p => dummyTracker.set(p.name, { count: 0, roles: [] }));
+  return computeOrbitWithDiversity(profiles, weights, archetype, assessmentAnswers, tensions, dummyTracker, 999);
 }
 
 /**

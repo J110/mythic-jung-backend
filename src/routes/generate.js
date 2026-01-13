@@ -31,8 +31,13 @@ generateRouter.post('/', async (req, res, next) => {
       });
     }
 
+    // Get character references from Resonance Engine (if any)
+    const characterReferences = memoryStore.getCharacterReferences(userId);
+    userData.characterReferences = characterReferences;
+
     const assessmentCount = userData.assessments?.length || 0;
-    console.log(`Generating output for user ${userId} with ${userData.profile.characters.length} characters and ${assessmentCount} assessment answers`);
+    const refCount = characterReferences.filter(r => r?.mode !== 'NONE').length;
+    console.log(`Generating output for user ${userId} with ${userData.profile.characters.length} characters, ${assessmentCount} assessments, ${refCount} references`);
 
     // Generate output (5-engine pipeline with Example Engine)
     const output = await generateOutput(userData, { force });

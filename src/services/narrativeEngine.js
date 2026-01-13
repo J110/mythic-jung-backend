@@ -5,6 +5,7 @@
  */
 
 import OpenAI from 'openai';
+import { safeParseJSON } from '../utils/jsonParser.js';
 
 let openai = null;
 
@@ -89,6 +90,17 @@ ${assessmentContext.erosNeedNow ? `- Intimacy/Connection Need: Seeking through $
 ${assessmentContext.riskEdgesNow ? `- Shadow Risk Edges: Watch for ${assessmentContext.riskEdgesNow.join(', ')}` : ''}
 
 ${assessmentInstructions}
+
+=== CRITICAL: ROLE ASSIGNMENTS (USE EXACTLY THESE CHARACTERS) ===
+In the "identification" section, you MUST use these EXACT character assignments:
+- EGO section: Use ONLY "${selfModel.coreMappings.ego?.characterRefs?.[0] || 'the ego character'}"
+- PERSONA section: Use ONLY "${selfModel.coreMappings.persona?.characterRefs?.[0] || 'the persona character'}"
+- SHADOW section: Use ONLY "${selfModel.coreMappings.shadow?.characterRefs?.[0] || 'the shadow character'}"
+- SHADOWVIRTUE section: Use ONLY "${selfModel.coreMappings.shadowVirtue?.characterRefs?.[0] || 'the shadow virtue character'}"
+- FEELINGFUNCTION section: Use ONLY "${selfModel.coreMappings.feelingFunction?.characterRefs?.[0] || 'the feeling character'}"
+- EROSAXIS section: Use ONLY "${selfModel.coreMappings.erosAxis?.characterRefs?.[0] || 'the eros character'}"
+
+DO NOT mix up characters between sections. Each section's "characters" array MUST contain ONLY the assigned character.
 
 Generate a JSON response with this EXACT structure (all fields required):
 
@@ -235,7 +247,7 @@ Generate 4-5 situationBlocks. All text must be specific to these characters.`;
     });
 
     const content = response.choices[0].message.content.trim();
-    const parsed = JSON.parse(content);
+    const parsed = safeParseJSON(content, 'NarrativeEngine.generateFullNarrative');
     
     // Validate and ensure completeness
     return validateOutput(parsed, selfModel, profiles);
@@ -247,20 +259,37 @@ Generate 4-5 situationBlocks. All text must be specific to these characters.`;
 
 /**
  * Generate identification_v2 with Center/Orbit/Compensation narratives
+ * V3: Now supports primary + secondary format and dominant archetype
  */
 async function generateIdentificationV2(selfModel, profiles, client) {
   const dynamics = selfModel.identificationDynamics;
+  const dominantArchetype = dynamics._dominantArchetype;
   
-  // Build a compact context for the AI
+  // Build a compact context for the AI with V3 format
   const archetypeContext = Object.entries(dynamics)
-    .filter(([_, data]) => data?.center)
+    .filter(([key, data]) => key !== '_dominantArchetype' && (data?.center || data?.primary))
     .map(([archetype, data]) => {
-      const centerChars = data.center.characters.join(', ');
+      // V3 format has primary/secondary, V2 format has center
+      const primaryChar = data.primary?.character || data.center?.characters?.[0];
+      const secondaryChars = data.secondary?.map(s => s.character) || [];
       const orbitCount = data.orbit?.length || 0;
       const compCount = data.compensations?.length || 0;
-      return `${archetype}: center=${centerChars}, orbits=${orbitCount}, comps=${compCount}`;
+      const confidence = data.primary?.confidence || data.center?.confidence || 0;
+      const evidenceFlags = data.primary?.evidenceFlags || [];
+      
+      let line = `${archetype}: primary=${primaryChar} (conf: ${confidence.toFixed(2)})`;
+      if (secondaryChars.length > 0) line += `, secondary=[${secondaryChars.join(', ')}]`;
+      if (evidenceFlags.length > 0) line += `, evidence=[${evidenceFlags.slice(0,3).join(', ')}]`;
+      line += `, orbits=${orbitCount}`;
+      
+      return line;
     })
     .join('\n');
+  
+  // Add dominant archetype info if present
+  const dominantContext = dominantArchetype?.enabled 
+    ? `\n\nDOMINANT ARCHETYPE DETECTED: ${dominantArchetype.characterName} appears in ${dominantArchetype.roles.length} roles (${dominantArchetype.roles.join(', ')}). This means ONE character is doing multiple psychological jobs - the narrative should acknowledge this.`
+    : '';
   
   const characterContext = profiles.map(p => 
     `${p.name}: ${p.archetypeSignals?.primaryArchetypes?.slice(0,2).join(', ') || 'Hero'}`
@@ -268,9 +297,10 @@ async function generateIdentificationV2(selfModel, profiles, client) {
 
   const systemPrompt = `You are a Jungian analyst generating rich, descriptive narratives for psychological positions.
 STYLE: Descriptive, character-specific, mythic but accessible. NO therapy-speak, NO generic advice.
-OUTPUT: Pure JSON. All text fields must be substantive and specific to the characters.`;
+OUTPUT: Pure JSON. All text fields must be substantive and specific to the characters.
+IMPORTANT: Do NOT show numeric scores or confidence numbers in the narrative. Use descriptive language only.`;
 
-  const userPrompt = `Generate identification_v2 narratives for this person's psychological structure:
+  const userPrompt = `Generate identification_v2 narratives for this person's psychological structure:${dominantContext}
 
 ARCHETYPE MAPPINGS:
 ${archetypeContext}
@@ -309,10 +339,18 @@ For EACH archetype (ego, persona, shadow, shadowVirtue, feelingFunction, erosAxi
 
 RULES:
 - All summaries/details MUST reference specific character names and their traits
-- Orbit patterns should match ${Object.values(dynamics).map(d => d.orbit?.length || 0).join(',')} entries respectively
-- Compensation entries should match ${Object.values(dynamics).map(d => d.compensations?.length || 0).join(',')} entries respectively
+- Orbit patterns should match the number of orbit entries provided
 - Keep language mythic but accessible to laypeople
-- No diagnosis language, no advice tone`;
+- No diagnosis language, no advice tone
+- Do NOT include numeric scores or confidence percentages in the narrative text
+${dominantArchetype?.enabled ? `
+DOMINANT ARCHETYPE HANDLING:
+Since ${dominantArchetype.characterName} appears in multiple roles (${dominantArchetype.roles.join(', ')}):
+1. Acknowledge that one archetype is "doing multiple jobs"
+2. Describe ONE strength of this pattern
+3. Describe ONE cost/risk of this pattern  
+4. Suggest ONE integration action (not advice, but an observed path)
+` : ''}`;
 
   try {
     const response = await client.chat.completions.create({
@@ -327,7 +365,7 @@ RULES:
     });
 
     const content = response.choices[0].message.content.trim();
-    const parsed = JSON.parse(content);
+    const parsed = safeParseJSON(content, 'NarrativeEngine.generateIdentificationV2');
     
     // Merge AI-generated narratives with deterministic data from dynamics
     return mergeIdentificationV2(parsed, dynamics, profiles);
@@ -340,6 +378,7 @@ RULES:
 
 /**
  * Merge AI narratives with deterministic synthesis data
+ * V3: Now supports primary + secondary format
  */
 function mergeIdentificationV2(aiGenerated, dynamics, profiles) {
   const result = {
@@ -352,30 +391,80 @@ function mergeIdentificationV2(aiGenerated, dynamics, profiles) {
     const dynamicData = dynamics[archetype];
     const aiData = aiGenerated[archetype];
     
-    if (!dynamicData?.center) {
+    // V3 format check: primary/secondary or center
+    const hasV3Format = dynamicData?.primary;
+    const hasCenter = dynamicData?.center;
+    
+    if (!hasV3Format && !hasCenter) {
       result[archetype] = null;
       return;
     }
     
+    // Build center from V3 primary or legacy center
+    const primaryChar = hasV3Format ? dynamicData.primary.character : dynamicData.center?.characters?.[0];
+    const centerCharacters = hasV3Format 
+      ? [dynamicData.primary.character, ...(dynamicData.secondary || []).map(s => s.character)]
+      : dynamicData.center?.characters || [];
+    const confidence = hasV3Format ? dynamicData.primary.confidence : dynamicData.center?.confidence;
+    const evidenceFlags = hasV3Format ? dynamicData.primary.evidenceFlags : [];
+    
+    // === FIX: Replace wrong character names in AI-generated text ===
+    // The AI might ignore instructions and mention a different character in the narrative.
+    // We fix this by replacing any wrong character name with the correct one (primaryChar).
+    let aiSummary = aiData?.center?.summary || `Your ${archetype} is embodied by ${centerCharacters.join(' and ')}.`;
+    let aiDetails = aiData?.center?.details || '';
+    
+    // Get AI's characters (might be wrong)
+    const aiChars = aiData?.center?.characters || [];
+    if (primaryChar && aiChars.length > 0 && aiChars[0] && aiChars[0] !== primaryChar) {
+      console.log(`[NarrativeEngine] Fixing character mismatch in ${archetype} V2: "${aiChars[0]}" -> "${primaryChar}"`);
+      // Replace wrong character name in summary and details
+      const wrongChar = aiChars[0];
+      aiSummary = aiSummary.replace(new RegExp(wrongChar, 'gi'), primaryChar);
+      aiDetails = aiDetails.replace(new RegExp(wrongChar, 'gi'), primaryChar);
+    }
+    
     result[archetype] = {
-      // CENTER: deterministic data + AI narrative
+      // PRIMARY + SECONDARY (V3 format)
+      primary: hasV3Format ? {
+        characterId: dynamicData.primary.characterId,
+        character: dynamicData.primary.character,
+        confidence: dynamicData.primary.confidence,
+        evidenceFlags: dynamicData.primary.evidenceFlags,
+      } : null,
+      
+      secondary: hasV3Format ? dynamicData.secondary : [],
+      
+      // CENTER: deterministic data + AI narrative (backwards compatible)
       center: {
-        label: dynamicData.center.label,
-        characters: dynamicData.center.characters,
-        summary: aiData?.center?.summary || `Your ${archetype} is embodied by ${dynamicData.center.characters.join(' and ')}.`,
-        details: aiData?.center?.details || '',
-        confidence: dynamicData.center.confidence,
-        rationale: dynamicData.center.rationale,
+        label: hasCenter ? dynamicData.center.label : `Primary ${archetype} Position`,
+        characters: centerCharacters,
+        summary: aiSummary,
+        details: aiDetails,
+        confidence: confidence,
+        rationale: {
+          ...(hasCenter ? dynamicData.center.rationale : {}),
+          evidenceFlags, // V3: Include evidence flags
+        },
       },
       
       // ORBIT: deterministic triggers + AI patterns
+      // IMPORTANT: trigger must be an object { name, tags }, not a string
       orbit: (dynamicData.orbit || []).map((orbitEntry, idx) => ({
-        trigger: orbitEntry.trigger,
-        characters: orbitEntry.characters,
+        trigger: typeof orbitEntry.trigger === 'object' 
+          ? orbitEntry.trigger 
+          : { 
+              name: orbitEntry.trigger || orbitEntry.triggerName || 'Contextual Shift',
+              tags: orbitEntry.tags || [],
+            },
+        characters: orbitEntry.characters || [orbitEntry.character].filter(Boolean),
+        character: orbitEntry.character,
         pattern: aiData?.orbit?.[idx]?.pattern || '',
         costRisk: orbitEntry.costRisk,
         stabilizer: aiData?.orbit?.[idx]?.stabilizer || '',
         rationale: orbitEntry.rationale,
+        confidence: orbitEntry.confidence,
+        evidenceFlags: orbitEntry.evidenceFlags,
       })),
       
       // COMPENSATIONS: deterministic structure + AI descriptions
@@ -388,8 +477,16 @@ function mergeIdentificationV2(aiGenerated, dynamics, profiles) {
         characters: comp.characters,
         rationale: comp.rationale,
       })),
+      
+      // V3: Role confidence
+      roleConfidence: dynamicData.roleConfidence,
     };
   });
+  
+  // V3: Add dominant archetype info
+  if (dynamics._dominantArchetype?.enabled) {
+    result._dominantArchetype = dynamics._dominantArchetype;
+  }
   
   return result;
 }
@@ -580,6 +677,45 @@ function validateOutput(output, selfModel, profiles) {
   if (!output.functioning) output.functioning = {};
   if (!output.actions) output.actions = {};
   if (!output.lifeDomains) output.lifeDomains = {};
+  
+  // === FIX CHARACTER ASSIGNMENTS FROM COREMAPPINGS (AUTHORITATIVE SOURCE) ===
+  // The LLM sometimes ignores explicit instructions about which character to use.
+  // We fix this by overriding the characters array with the authoritative source.
+  const roleToMappingKey = {
+    ego: 'ego',
+    persona: 'persona',
+    shadow: 'shadow',
+    shadowVirtue: 'shadowVirtue',
+    feelingFunction: 'feelingFunction',
+    erosAxis: 'erosAxis',
+  };
+  
+  Object.entries(roleToMappingKey).forEach(([idKey, mappingKey]) => {
+    const correctChar = selfModel?.coreMappings?.[mappingKey]?.characterRefs?.[0];
+    if (correctChar && output.identification[idKey]) {
+      const block = output.identification[idKey];
+      const originalChars = block.characters || [];
+      
+      // If the correct character is not already first, fix it
+      if (originalChars[0] !== correctChar) {
+        console.log(`[NarrativeEngine] Fixing character mismatch in ${idKey}: "${originalChars[0]}" -> "${correctChar}"`);
+        
+        // Replace character name in summary and details
+        if (block.summary && originalChars[0]) {
+          block.summary = block.summary.replace(new RegExp(originalChars[0], 'gi'), correctChar);
+        }
+        if (block.details && typeof block.details === 'string' && originalChars[0]) {
+          block.details = block.details.replace(new RegExp(originalChars[0], 'gi'), correctChar);
+        }
+        
+        // Also fix the characters array - keep correct char first, filter out duplicates
+        const otherChars = originalChars
+          .filter(c => c.toLowerCase() !== correctChar.toLowerCase())
+          .filter((c, i, arr) => arr.findIndex(x => x.toLowerCase() === c.toLowerCase()) === i); // dedupe
+        block.characters = [correctChar, ...otherChars];
+      }
+    }
+  });
   
   // Convert any object details fields to strings
   const idBlocks = ['ego', 'persona', 'shadow', 'shadowVirtue', 'feelingFunction', 'erosAxis', 'moralOrientation'];

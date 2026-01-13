@@ -5,6 +5,7 @@
  */
 
 import OpenAI from 'openai';
+import { safeParseJSON } from '../utils/jsonParser.js';
 
 let openai = null;
 
@@ -66,6 +67,9 @@ export async function discoverCharacterProfile(canonical, options = {}) {
 
 /**
  * Batch discover ALL profiles in ONE API call (avoids rate limits, much faster)
+ * @param {Array} canonicals - Array of canonical character objects
+ * @param {Object} options - Discovery options
+ * @param {Array} options.references - Optional array of reference constraints from Resonance Engine
  */
 export async function discoverCharacterProfiles(canonicals, options = {}) {
   if (canonicals.length === 0) return [];
@@ -75,23 +79,33 @@ export async function discoverCharacterProfiles(canonicals, options = {}) {
     throw new Error('OpenAI API key required for character discovery');
   }
 
+  // Get reference constraints if provided
+  const references = options.references || [];
+
   // Check cache for all - if all cached, return immediately
+  // Note: Cache key includes reference tags for different versions
   const cached = [];
   const toDiscover = [];
   
-  for (const canonical of canonicals) {
-    const cacheKey = `${canonical.canonicalId}_${options.variant || 'default'}`;
+  for (let i = 0; i < canonicals.length; i++) {
+    const canonical = canonicals[i];
+    const ref = references[i];
+    const refKey = ref?.tags?.join('_') || 'default';
+    const cacheKey = `${canonical.canonicalId}_${refKey}`;
+    
     if (profileCache.has(cacheKey)) {
       cached.push({ canonical, profile: profileCache.get(cacheKey) });
     } else {
-      toDiscover.push(canonical);
+      toDiscover.push({ canonical, reference: ref, index: i });
     }
   }
 
   if (toDiscover.length === 0) {
     // All cached
-    return canonicals.map(c => {
-      const cacheKey = `${c.canonicalId}_${options.variant || 'default'}`;
+    return canonicals.map((c, i) => {
+      const ref = references[i];
+      const refKey = ref?.tags?.join('_') || 'default';
+      const cacheKey = `${c.canonicalId}_${refKey}`;
       return profileCache.get(cacheKey);
     });
   }
@@ -99,11 +113,43 @@ export async function discoverCharacterProfiles(canonicals, options = {}) {
   console.log(`[Discovery] Batch discovering ${toDiscover.length} profiles in ONE API call...`);
 
   try {
-    // Optimized concise prompt for speed
-    const charList = toDiscover.map((c, i) => `${i+1}.${c.name}(${c.franchise})`).join(', ');
+    // Build character list with phase constraints
+    const charList = toDiscover.map((item, i) => {
+      const { canonical, reference } = item;
+      let charDesc = `${i+1}.${canonical.name}(${canonical.franchise})`;
+      
+      // Add phase constraint if reference is provided
+      if (reference && reference.mode !== 'NONE') {
+        const phaseHints = [];
+        if (reference.tags?.includes('early') || reference.tags?.includes('idealistic')) {
+          phaseHints.push('early/idealistic phase');
+        }
+        if (reference.tags?.includes('later') || reference.tags?.includes('dark')) {
+          phaseHints.push('later/darker phase');
+        }
+        if (reference.text) {
+          phaseHints.push(`specifically: ${reference.text}`);
+        }
+        if (phaseHints.length > 0) {
+          charDesc += `[${phaseHints.join(', ')}]`;
+        }
+      }
+      
+      return charDesc;
+    }).join(', ');
+    
     const prompt = `Jungian profiles for: ${charList}
 
-Return JSON: {"profiles":[{"name":"Name","archetypeSignals":{"primaryArchetypes":["Hero"],"shadowArchetypes":["Shadow"]},"jungFunctions":{"egoMode":"","personaMode":"","shadowPattern":"","feelingChannel":"","erosNeed":""},"narrativeArc":{"wound":"","desire":"","fear":"","transformation":""},"behavioralTraits":{"strengths":[""],"liabilities":[""],"triggers":[""]}}]}
+Return JSON: {"profiles":[{
+  "name":"Name",
+  "archetypeSignals":{"primaryArchetypes":["Hero"],"shadowArchetypes":["Shadow"]},
+  "jungFunctions":{"egoMode":"","personaMode":"","shadowPattern":"","feelingChannel":"","erosNeed":""},
+  "narrativeArc":{"wound":"","desire":"","fear":"","transformation":""},
+  "behavioralTraits":{"strengths":[""],"liabilities":[""],"triggers":[""]},
+  "motifs":[{"motif":"HERO","weight":0.8}]
+}]}
+
+MOTIFS: Choose from [HERO,TRICKSTER,WISE_OLD_MAN,GREAT_MOTHER,FATHER_AUTHORITY,CHILD,LOVER_EROS,WARRIOR,MAGICIAN,CAREGIVER_HEALER,OUTLAW_REBEL,SEEKER_WANDERER]. Pick 2-4 motifs per character with weights 0.3-1.0.
 
 Include 2-3 items per array. Be specific to each character.`;
 
@@ -119,35 +165,43 @@ Include 2-3 items per array. Be specific to each character.`;
     });
 
     const content = response.choices[0].message.content;
-    const parsed = JSON.parse(content);
+    const parsed = safeParseJSON(content, 'DiscoveryEngine.extractCharacterProfile');
     const profiles = parsed.profiles || parsed.characters || [];
 
     // Map discovered profiles back and cache them
     const discoveredMap = new Map();
     profiles.forEach((profile, index) => {
-      const canonical = toDiscover[index];
-      if (canonical) {
+      const item = toDiscover[index];
+      if (item) {
+        const { canonical, reference } = item;
+        const refKey = reference?.tags?.join('_') || 'default';
+        
         const fullProfile = {
           canonicalId: canonical.canonicalId,
           name: canonical.name,
           ...profile,
+          // Store reference info for downstream use
+          referenceConstraint: reference || null,
           provenance: {
             sources: [`${canonical.franchise}`],
             generatedAt: new Date().toISOString(),
             modelVersion: process.env.OPENAI_DISCOVERY_MODEL || 'gpt-4o-mini',
             profileVersion: options.profileVersion || 'v1',
+            phaseConstraint: reference?.tags || [],
           },
         };
         
-        const cacheKey = `${canonical.canonicalId}_${options.variant || 'default'}`;
+        const cacheKey = `${canonical.canonicalId}_${refKey}`;
         profileCache.set(cacheKey, fullProfile);
         discoveredMap.set(canonical.canonicalId, fullProfile);
       }
     });
 
     // Return all profiles in original order
-    return canonicals.map(c => {
-      const cacheKey = `${c.canonicalId}_${options.variant || 'default'}`;
+    return canonicals.map((c, i) => {
+      const ref = references[i];
+      const refKey = ref?.tags?.join('_') || 'default';
+      const cacheKey = `${c.canonicalId}_${refKey}`;
       return profileCache.get(cacheKey) || discoveredMap.get(c.canonicalId) || createFallbackProfile(c);
     });
 
@@ -175,6 +229,11 @@ function createFallbackProfile(canonical) {
     narrativeArc: { woundOrigin: 'Unknown', desire: 'Purpose', fear: 'Failure', trials: ['Challenge'], transformation: 'Growth', redemption: 'Integration' },
     behavioralTraits: { strengths: ['Resourceful'], liabilities: ['Self-reliant'], triggers: ['Injustice'], compensations: ['Control'] },
     symbols: { motifs: ['Journey'], coreMetaphor: 'The seeker' },
+    // Motif weights for constellation engine
+    motifs: [
+      { motif: 'HERO', weight: 0.6 },
+      { motif: 'SEEKER_WANDERER', weight: 0.5 },
+    ],
     provenance: { sources: ['Fallback'], generatedAt: new Date().toISOString(), modelVersion: 'fallback', profileVersion: 'v1' },
   };
 }
@@ -230,7 +289,7 @@ Return JSON:
     });
 
     const content = response.choices[0].message.content.trim();
-    return JSON.parse(content);
+    return safeParseJSON(content, 'DiscoveryEngine.retrieveCharacterFacts');
   } catch (error) {
     console.error('[Discovery] Error retrieving facts:', error);
     return {
@@ -294,8 +353,16 @@ Return JSON matching this schema:
   "symbols": {
     "motifs": ["motif1", "motif2"],
     "coreMetaphor": "one line core metaphor"
-  }
-}`;
+  },
+  "motifs": [
+    {"motif": "HERO", "weight": 0.8},
+    {"motif": "SEEKER_WANDERER", "weight": 0.5}
+  ]
+}
+
+IMPORTANT: For "motifs" array, use ONLY these enum values with weights 0.3-1.0:
+[HERO, TRICKSTER, WISE_OLD_MAN, GREAT_MOTHER, FATHER_AUTHORITY, CHILD, LOVER_EROS, WARRIOR, MAGICIAN, CAREGIVER_HEALER, OUTLAW_REBEL, SEEKER_WANDERER]
+Pick 2-4 most relevant motifs for this character.`;
 
   try {
     const response = await client.chat.completions.create({
@@ -315,7 +382,7 @@ Return JSON matching this schema:
     });
 
     const content = response.choices[0].message.content.trim();
-    let parsed = JSON.parse(content);
+    let parsed = safeParseJSON(content, 'DiscoveryEngine.generateProfileForUnknown');
     
     // Ensure canonicalId and name are set
     parsed.canonicalId = canonical.canonicalId;

@@ -4,7 +4,7 @@ import { generateIntelligentOutput } from './intelligentGenerator.js';
 
 /**
  * Generate output based on user profile and assessments
- * @param {Object} userData - User data with profile and assessments
+ * @param {Object} userData - User data with profile, assessments, and optional characterReferences
  * @param {Object} options - Generation options (force, etc.)
  */
 export async function generateOutput(userData, options = {}) {
@@ -16,6 +16,10 @@ export async function generateOutput(userData, options = {}) {
   }
 
   // Use intelligent generator by default (5-engine pipeline with Example Engine)
+  // Pass character references from Resonance Engine if available
   console.log('Using intelligent 5-engine generation pipeline (includes Example Engine)');
-  return generateIntelligentOutput(userData, options);
+  return generateIntelligentOutput(userData, {
+    ...options,
+    characterReferences: userData.characterReferences || [],
+  });
 }

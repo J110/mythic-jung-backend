@@ -19,6 +19,7 @@ import { discoverCharacterProfiles } from './characterDiscoveryEngine.js';
 import { synthesizeSelfModel } from './synthesisEngine.js';
 import { generateNarrative } from './narrativeEngine.js';
 import { generateExamples } from './exampleEngine.js';
+import { computeConstellation } from './archetypeConstellationEngine.js';
 import crypto from 'crypto';
 
 // === AGGRESSIVE CACHING ===
@@ -82,11 +83,14 @@ function cacheOutput(inputHash, output) {
  * 
  * @param {Object} userData - User data with profile and assessments
  * @param {Object} options - Generation options
+ * @param {Array} options.characterReferences - Optional reference constraints from Resonance Engine
  * @returns {Promise<GeneratedOutput>}
  */
 export async function generateIntelligentOutput(userData, options = {}) {
   const { profile, assessments = [] } = userData;
   const characters = profile?.characters || [];
+  // Get references from options (passed from generation service) or userData
+  const characterReferences = options.characterReferences || userData.characterReferences || [];
 
   if (characters.length === 0) {
     throw new Error('No characters provided');
@@ -155,9 +159,17 @@ export async function generateIntelligentOutput(userData, options = {}) {
   });
 
   // Step 2: Character Discovery (gpt-4o - REQUIRED for archetypal depth)
-  // Discovery has its own internal caching by canonicalId
+  // Discovery has its own internal caching by canonicalId + reference
   console.log('[Step 2] Character Discovery Engine (gpt-4o)...');
-  const profiles = await discoverCharacterProfiles(canonicals);
+  
+  // Pass reference constraints from Resonance Engine if available
+  const discoveryOptions = {};
+  if (characterReferences && characterReferences.length > 0) {
+    discoveryOptions.references = characterReferences;
+    console.log(`[Step 2] Using ${characterReferences.filter(r => r?.mode !== 'NONE').length} reference constraints`);
+  }
+  
+  const profiles = await discoverCharacterProfiles(canonicals, discoveryOptions);
   console.log(`[Step 2] Discovery: ${profiles.length} profiles`);
 
   // Step 3: Synthesis (NO LLM - deterministic, explainable, stable)
@@ -201,7 +213,21 @@ export async function generateIntelligentOutput(userData, options = {}) {
     };
   }
 
-  // Construct final output with examples
+  // Step 6: Compute Archetype Constellation (deterministic, fast)
+  console.log('[Step 6] Computing archetype constellation...');
+  let constellation = null;
+  try {
+    constellation = computeConstellation(selfModel, profiles, { characterReferences }, assessments);
+    console.log('[Step 6] ✅ Constellation computed:', {
+      structuralKeys: constellation?.structural ? Object.keys(constellation.structural) : [],
+      topMotifs: constellation?.motifs?.top?.length || 0,
+    });
+  } catch (constError) {
+    console.error('[Step 6] Constellation error:', constError.message);
+    // Non-fatal - continue without constellation
+  }
+
+  // Construct final output with examples and constellation
   const output = {
     story: narrativeOutput.story,
     identification: narrativeOutput.identification,
@@ -211,11 +237,16 @@ export async function generateIntelligentOutput(userData, options = {}) {
     lifeDomains: narrativeOutput.lifeDomains,
     meta: narrativeOutput.meta,
     examples: examples,
+    constellation: constellation, // NEW: Archetype constellation
+    // Include selfModel and profiles for archetypes route
+    selfModel: selfModel,
+    characterProfiles: profiles,
   };
   
   console.log('[Final] Output ready with keys:', Object.keys(output));
   console.log('[Final] Has identification_v2:', !!output.identification_v2);
   console.log('[Final] Has examples:', !!output.examples);
+  console.log('[Final] Has constellation:', !!output.constellation);
 
   // === CACHE OUTPUT ===
   cacheOutput(inputHash, output);

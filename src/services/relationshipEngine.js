@@ -17,16 +17,26 @@ import crypto from 'crypto';
 import { recognizeCharacters } from './characterRecognitionEngine.js';
 import { discoverCharacterProfiles } from './characterDiscoveryEngine.js';
 import { synthesizeSelfModel } from './synthesisEngine.js';
+import { safeParseJSON } from '../utils/jsonParser.js';
+import { computeConstellation, computeRelationshipConstellation } from './archetypeConstellationEngine.js';
 
 // Cache for relationship outputs
 const relationshipCache = new Map();
+
+/**
+ * Clear all relationship caches
+ */
+export function clearRelationshipCache() {
+  relationshipCache.clear();
+  console.log('[RelationshipEngine] Cache cleared');
+}
 
 /**
  * Main entry point - generates relationship output
  * 
  * @param {Object} relationshipSet - The relationship character set
  * @param {Object} meData - Optional Me data for enrichment
- * @param {Object} options - Generation options
+ * @param {Object} options - Generation options (includes preRecognizedCharacters, referenceHints)
  * @returns {Promise<Object>} RelationshipOutput
  */
 export async function generateRelationshipOutput(relationshipSet, meData = {}, options = {}) {
@@ -44,19 +54,36 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
     return relationshipCache.get(inputHash);
   }
   
-  // Step 1: Recognize Other characters
-  console.log('[RelationshipEngine] Step 1: Character Recognition...');
-  const recognitionResult = await recognizeCharacters(otherCharacterInputs);
+  let canonicals;
   
-  // recognizeCharacters returns { results: [...], overall: {...} }
-  const validResults = recognitionResult.results.filter(r => r.status === 'RECOGNIZED');
-  if (validResults.length < 4) {
-    throw new Error(`Only ${validResults.length} characters recognized. Need at least 4.`);
+  // Step 1: Use pre-recognized characters if available (from resonance flow)
+  // This prevents re-recognition which would lose reference information
+  if (options.preRecognizedCharacters && options.preRecognizedCharacters.length >= 4) {
+    console.log('[RelationshipEngine] Step 1: Using pre-recognized characters (skipping re-recognition)');
+    canonicals = options.preRecognizedCharacters.map(c => c.canonical || c);
+    console.log(`[RelationshipEngine] Pre-recognized: ${canonicals.map(c => c.name).join(', ')}`);
+  } else {
+    // Fallback: Recognize with reference hints if provided
+    console.log('[RelationshipEngine] Step 1: Character Recognition...');
+    
+    // Build reference hints from options if available
+    const referenceHints = options.referenceHints || {};
+    console.log(`[RelationshipEngine] Reference hints: ${Object.keys(referenceHints).length > 0 ? JSON.stringify(referenceHints) : 'none'}`);
+    
+    const recognitionResult = await recognizeCharacters(otherCharacterInputs, referenceHints);
+    
+    // recognizeCharacters returns { results: [...], overall: {...} }
+    const validResults = recognitionResult.results.filter(r => r.status === 'RECOGNIZED');
+    if (validResults.length < 4) {
+      throw new Error(`Only ${validResults.length} characters recognized. Need at least 4.`);
+    }
+    
+    // Extract canonical objects for discovery
+    canonicals = validResults.map(r => r.canonical);
+    console.log(`[RelationshipEngine] Recognition complete: ${validResults.length} recognized`);
   }
   
-  // Extract canonical objects for discovery (discoverCharacterProfiles expects canonicals, not raw results)
-  const canonicals = validResults.map(r => r.canonical);
-  console.log(`[RelationshipEngine] Step 1 complete: ${validResults.length} recognized`);
+  console.log(`[RelationshipEngine] Step 1 complete: ${canonicals.length} characters`);
   console.log(`[RelationshipEngine] Canonical names: ${canonicals.map(c => c.name).join(', ')}`);
   
   // Step 2: Discover character profiles
@@ -104,15 +131,78 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
   );
   console.log('[RelationshipEngine] Step 6 complete');
   
-  // Build final output
+  // Step 7: Generate What-If Scenarios (NEW)
+  console.log('[RelationshipEngine] Step 7: Generating What-If Scenarios...');
+  const whatIfScenarios = await generateWhatIfScenarios(
+    relationshipModel,
+    otherProfiles,
+    meData,
+    relationshipType
+  );
+  console.log('[RelationshipEngine] Step 7 complete');
+  
+  // Step 8: Generate Ease Zones and Rupture Loops (now async with AI)
+  console.log('[RelationshipEngine] Step 8: Generating Ease/Rupture Zones...');
+  const [easeZones, ruptureLoops] = await Promise.all([
+    calculateEaseZones(relationshipModel, otherProfiles, meData),
+    calculateRuptureLoops(relationshipModel, otherProfiles, meData),
+  ]);
+  console.log('[RelationshipEngine] Step 8 complete');
+  
+  // Step 9: Compute archetype constellation (deterministic)
+  console.log('[RelationshipEngine] Step 9: Computing archetype constellations...');
+  let constellation = null;
+  try {
+    // Compute partner constellation
+    const partnerConstellation = computeConstellation(otherSelfModel, otherProfiles, {}, []);
+    
+    // Compute Me constellation if available
+    let meConstellation = null;
+    if (meData.selfModel && meData.profiles) {
+      meConstellation = computeConstellation(meData.selfModel, meData.profiles, {}, []);
+    }
+    
+    // Compute relationship constellation if both exist
+    let relationshipConstellationData = null;
+    if (meConstellation && partnerConstellation) {
+      relationshipConstellationData = computeRelationshipConstellation(
+        meConstellation,
+        partnerConstellation,
+        relationshipModel
+      );
+    }
+    
+    constellation = {
+      meConstellation,
+      partnerConstellation,
+      relationshipConstellation: relationshipConstellationData,
+      taxonomyVersion: '1.0.0',
+      computedAt: new Date().toISOString(),
+    };
+    console.log('[RelationshipEngine] Step 9 complete');
+  } catch (constError) {
+    console.error('[RelationshipEngine] Constellation error:', constError.message);
+    // Non-fatal - continue without constellation
+  }
+  
+  // Build final output (relationship-centered v2)
   const output = {
     myth: narrative.myth,
     relationshipModel,
     narrative,
     examples,
+    // NEW: Relationship-centered additions
+    whatIfScenarios,
+    easeZones,
+    ruptureLoops,
+    // NEW: Archetype constellation
+    constellation,
+    // Include models for archetypes route
+    otherSelfModel,
+    otherProfiles,
     meta: {
       generatedAt: new Date().toISOString(),
-      modelVersion: 'relationship-v1',
+      modelVersion: 'relationship-v2',
       inputHash,
       relationshipType,
       hasMeData: !!meData.selfModel,
@@ -147,7 +237,10 @@ function buildRelationshipModel(otherSelfModel, otherProfiles, meSelfModel, meCh
   const otherMappings = otherSelfModel.coreMappings || {};
   const otherTensions = otherSelfModel.tensions || [];
   
-  // Get character names for all mappings
+  // Get ALL character names from profiles (not just role-mapped ones)
+  const allCharacterNames = otherProfiles.map(p => p.name || p.canonicalName).filter(Boolean);
+  
+  // Get character names for role mappings (may not include all characters)
   const characterNameMap = {
     ego: getCharacterName(otherMappings.ego),
     persona: getCharacterName(otherMappings.persona),
@@ -157,7 +250,15 @@ function buildRelationshipModel(otherSelfModel, otherProfiles, meSelfModel, meCh
     eros: getCharacterName(otherMappings.erosAxis),
   };
   
-  console.log('[RelationshipEngine] Character mappings:', characterNameMap);
+  // Find characters NOT assigned to any role
+  const assignedCharacters = new Set(Object.values(characterNameMap).filter(Boolean));
+  const unassignedCharacters = allCharacterNames.filter(name => !assignedCharacters.has(name));
+  
+  console.log('[RelationshipEngine] ALL characters:', allCharacterNames.join(', '));
+  console.log('[RelationshipEngine] Role mappings:', characterNameMap);
+  if (unassignedCharacters.length > 0) {
+    console.log('[RelationshipEngine] Characters without role assignment:', unassignedCharacters.join(', '));
+  }
   
   // Calculate relational dynamics
   const field = calculateRelationalField(otherSelfModel, meSelfModel, otherProfiles, characterNameMap);
@@ -181,6 +282,8 @@ function buildRelationshipModel(otherSelfModel, otherProfiles, meSelfModel, meCh
   return {
     type: relationshipType,
     characterNames: characterNameMap,
+    allCharacters: allCharacterNames,  // NEW: All characters for comprehensive narrative
+    unassignedCharacters,               // NEW: Characters not in core roles (still important!)
     field,
     bondingAxis,
     projectionShadow,
@@ -501,37 +604,50 @@ async function generateRelationshipNarrative(relationshipModel, otherProfiles, m
   const isRomantic = relationshipType === 'romantic';
   const hasMeData = !!meData.selfModel;
   
-  // Get actual character names from profiles
-  const characterNames = otherProfiles.map(p => p.name || p.canonicalName).filter(Boolean).join(', ');
+  // Get ALL character names - use relationshipModel.allCharacters which includes everyone
+  const allCharacters = relationshipModel.allCharacters || otherProfiles.map(p => p.name || p.canonicalName).filter(Boolean);
+  const characterNames = allCharacters.join(', ');
   const charMap = relationshipModel.characterNames || {};
+  const unassignedCharacters = relationshipModel.unassignedCharacters || [];
+  
+  console.log(`[RelationshipEngine] Generating narrative for ALL characters: ${characterNames}`);
   
   const systemPrompt = `You are a Jungian relationship analyst creating mystical yet accessible narratives about relational dynamics.
 
-IMPORTANT: Use the ACTUAL character names provided, NOT generic labels like "Character 1" or "Character 4".
-
-Characters in this analysis: ${characterNames}
+CRITICAL: You MUST reference ALL these characters throughout the narrative: ${characterNames}
+Do NOT leave any character out. Each character represents an important facet of this person's psyche.
 
 Write in a style that is:
 - Evocative and archetypal, not clinical
-- Specific to the characters mentioned BY NAME
+- Specific to EACH character mentioned BY NAME
 - ${isRomantic ? 'Sensitive to romantic/intimate dynamics' : 'Focused on friendship and collaboration'}
 - Never prescriptive or advice-giving, only descriptive
 
 ${hasMeData ? 'The user has provided their own character profile, so you can describe bidirectional dynamics.' : 'Focus only on describing the other person\'s patterns and likely relational dynamics.'}`;
 
+  // Build character context with profiles
+  const profileContext = otherProfiles.map(p => {
+    const traits = p.archetypeSignals?.primaryArchetypes?.slice(0,2).join(', ') || 'complex';
+    return `- ${p.name}: ${traits}`;
+  }).join('\n');
+
   const userPrompt = `Generate a relationship narrative based on this analysis:
 
 RELATIONSHIP TYPE: ${relationshipType}
-CHARACTER NAMES: ${characterNames}
-${hasMeData ? 'USER HAS PROVIDED THEIR OWN PROFILE (describe bidirectional dynamics)' : 'USER HAS NOT PROVIDED THEIR OWN PROFILE (focus on their patterns)'}
 
-CHARACTER MAPPINGS (use these EXACT names):
+==== ALL CHARACTERS (MUST include ALL of these throughout the narrative) ====
+${profileContext}
+
+==== CHARACTER ROLE MAPPINGS ====
 - Ego (core identity): ${charMap.ego || 'Not assigned'}
 - Persona (social self): ${charMap.persona || 'Not assigned'}
 - Shadow (hidden aspects): ${charMap.shadow || 'Not assigned'}
 - Shadow Virtue: ${charMap.shadowVirtue || 'Not assigned'}
 - Feeling Function: ${charMap.feelingFunction || 'Not assigned'}  
 - Eros Axis: ${charMap.eros || 'Not assigned'}
+${unassignedCharacters.length > 0 ? `\n==== CHARACTERS NOT IN CORE ROLES (still important - include them!) ====\n${unassignedCharacters.join(', ')}\n\nThese characters add nuance and depth to the relational picture. Include them in Field, Ease, Growth, What-If sections.` : ''}
+
+${hasMeData ? 'USER HAS PROVIDED THEIR OWN PROFILE (describe bidirectional dynamics)' : 'USER HAS NOT PROVIDED THEIR OWN PROFILE (focus on their patterns)'}
 
 RELATIONSHIP MODEL:
 - Field type: ${relationshipModel.field.type}
@@ -540,6 +656,12 @@ RELATIONSHIP MODEL:
 - Bonding style: ${relationshipModel.bondingAxis.type}
 - Communication style: ${relationshipModel.communicationConflict.style}
 - Tension count: ${relationshipModel._internal.otherTensionCount}
+
+IMPORTANT PERSPECTIVE RULES:
+- INSIGHTS about the partner/relationship: Write in 3rd person describing THEM and the dynamic
+- ACTIONS for growth/repair/next steps: Write in 2nd person addressing YOU (the reader/user)
+
+The USER is reading this to understand their partner AND to get actionable guidance for THEMSELVES.
 
 Generate JSON using the ACTUAL character names (${characterNames}), with this structure:
 {
@@ -550,41 +672,41 @@ Generate JSON using the ACTUAL character names (${characterNames}), with this st
     "themes": ["theme1", "theme2", "theme3"]
   },
   "relationalField": {
-    "summary": "2-3 sentences about how ${charMap.ego || characterNames.split(',')[0]} and others interact",
-    "story": "2-3 paragraphs about how these character energies interact"
+    "summary": "2-3 sentences about how these character energies interact (INSIGHT - 3rd person)",
+    "story": "2-3 paragraphs about the relational field between you"
   },
   "attractionBonding": {
-    "summary": "2-3 sentences about ${isRomantic ? 'attraction/eros' : 'trust/connection'} through ${charMap.eros || characterNames.split(',')[0]}",
+    "summary": "2-3 sentences about ${isRomantic ? 'attraction/eros' : 'trust/connection'} (INSIGHT - 3rd person)",
     "story": "2-3 paragraphs about bonding dynamics"
   },
   "projectionShadow": {
-    "summary": "2-3 sentences about projection patterns around ${charMap.shadow || 'shadow'}",
-    "story": "2-3 paragraphs about shadow triggers between them"
+    "summary": "2-3 sentences about projection patterns (INSIGHT - 3rd person)",
+    "story": "2-3 paragraphs about shadow triggers. End with what YOU can watch for."
   },
   "egoPersonaMismatch": {
-    "summary": "2-3 sentences about ${charMap.ego || 'ego'} vs ${charMap.persona || 'persona'}",
+    "summary": "2-3 sentences about authenticity gaps (INSIGHT - 3rd person)",
     "story": "2-3 paragraphs about authenticity dynamics"
   },
   "communicationConflict": {
-    "summary": "2-3 sentences about communication through ${charMap.feelingFunction || 'feeling'}",
-    "story": "2-3 paragraphs about how they handle conflict"
+    "summary": "2-3 sentences about communication patterns (INSIGHT - 3rd person)",
+    "story": "2-3 paragraphs about how conflict shows up. Include what YOU can do differently."
   },
   "needsBoundaries": {
-    "summary": "2-3 sentences about needs",
-    "story": "2-3 paragraphs about boundaries and deal-breakers"
+    "summary": "2-3 sentences about needs (INSIGHT - 3rd person)",
+    "story": "2-3 paragraphs about boundaries. Include YOUR boundaries to honor."
   },
   "growthPath": {
-    "summary": "2-3 sentences about growth potential",
-    "story": "2-3 paragraphs about how they can grow together"
+    "summary": "2-3 sentences about YOUR growth potential (ACTION - 2nd person)",
+    "story": "2-3 paragraphs about what YOU can do to grow - not what 'the relationship' needs, but YOUR specific actions"
   },
   "redFlagsRepair": {
-    "summary": "2-3 sentences about warning signs",
-    "story": "2-3 paragraphs about repair and resilience"
+    "summary": "2-3 sentences about warning signs to watch for (ACTION - 2nd person)",
+    "story": "2-3 paragraphs about how YOU can recognize ruptures early and what YOU can do to repair"
   },
   "nextSteps": [
-    {"situation": "situation name", "guidance": "1-2 sentences"},
-    {"situation": "situation name", "guidance": "1-2 sentences"},
-    {"situation": "situation name", "guidance": "1-2 sentences"}
+    {"situation": "A specific situation YOU might face", "guidance": "What YOU can do (2nd person, actionable)"},
+    {"situation": "Another situation", "guidance": "YOUR action to take"},
+    {"situation": "Another situation", "guidance": "YOUR action to take"}
   ]
 }
 
@@ -603,7 +725,14 @@ CRITICAL: Reference characters BY NAME (${characterNames}), not as "Character 1"
     });
     
     const content = response.choices[0].message.content;
-    return JSON.parse(content);
+    const parsed = safeParseJSON(content, 'RelationshipNarrative');
+    
+    // Validate essential fields
+    if (!parsed.myth && !parsed.field && !parsed.shadow) {
+      console.warn('[RelationshipEngine] Narrative missing essential fields, may be incomplete');
+    }
+    
+    return parsed;
   } catch (error) {
     console.error('[RelationshipEngine] Narrative generation error:', error);
     throw error;
@@ -616,20 +745,31 @@ CRITICAL: Reference characters BY NAME (${characterNames}), not as "Character 1"
 async function generateRelationshipExamples(relationshipModel, otherProfiles, meData, narrative) {
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   
-  const characterNames = otherProfiles.map(p => p.name || p.canonicalName).filter(Boolean).join(', ');
+  // Get ALL characters
+  const allCharacters = relationshipModel.allCharacters || otherProfiles.map(p => p.name || p.canonicalName).filter(Boolean);
+  const characterNames = allCharacters.join(', ');
   const hasMeData = !!meData.profile?.characters?.length;
   const charMap = relationshipModel.characterNames || {};
   
-  const prompt = `Generate relationship examples from the works of these characters: ${characterNames}
+  // Build profile context for ALL characters WITH FRANCHISE INFORMATION
+  const profileContext = otherProfiles.map(p => {
+    const traits = p.archetypeSignals?.primaryArchetypes?.slice(0,2).join(', ') || 'complex';
+    const franchise = p.provenance?.sources?.[0] || p.franchise || 'Unknown';
+    const medium = p.medium || 'film';
+    return `- ${p.name} from "${franchise}" (${medium}): ${traits}`;
+  }).join('\n');
+  
+  const prompt = `Generate relationship examples from the works of ALL these characters:
+${profileContext}
 
-Character mappings:
-- Ego: ${charMap.ego}
-- Persona: ${charMap.persona}  
-- Shadow: ${charMap.shadow}
-- Feeling Function: ${charMap.feelingFunction}
-- Eros: ${charMap.eros}
+CRITICAL: Use the EXACT franchise/medium shown above for each character.
+DO NOT change or make up franchises. Use only what's listed above.
 
-For each relationship module, provide 2-3 concrete examples from their ACTUAL films/books/stories that illustrate the dynamic. Use the character's real name in each example.
+IMPORTANT: Include examples from EVERY character listed above, not just the ego/shadow.
+Each character represents an important facet of this person's psyche.
+
+For each relationship module, provide 2-3 concrete examples from their ACTUAL films/books/stories.
+Spread examples across ALL characters (${characterNames}).
 
 Return JSON:
 {
@@ -637,7 +777,7 @@ Return JSON:
     {
       "characterName": "${charMap.ego || otherProfiles[0]?.name}",
       "fromSide": "other",
-      "reference": {"title": "Actual film/book title", "year": "year as string", "medium": "film|book|series"},
+      "reference": {"title": "EXACT franchise from list above", "year": "year if known", "medium": "medium from list above"},
       "situation": "Describe a specific scene",
       "actions": ["Action 1", "Action 2"],
       "outcomeAndCost": ["Outcome 1", "Cost 1"],
@@ -656,8 +796,9 @@ Return JSON:
 
 RULES:
 - Use ONLY real scenes from real works
+- Use the EXACT franchise name from the character list above
 - Each example must use a character name from: ${characterNames}
-- Reference actual titles, years, and media types
+- DO NOT make up or change franchise names
 - tier should be "A" for verified scenes, "B" for likely scenes`;
 
   try {
@@ -673,7 +814,7 @@ RULES:
     });
     
     const content = response.choices[0].message.content;
-    const examples = JSON.parse(content);
+    const examples = safeParseJSON(content, 'RelationshipExamples');
     
     // Ensure year is string
     Object.values(examples).forEach(exampleList => {
@@ -713,4 +854,391 @@ function createRelationshipHash(relationshipSet, meData) {
     meChars: meData.profile?.characters?.map(c => c.displayName).sort().join(',') || '',
   };
   return crypto.createHash('md5').update(JSON.stringify(data)).digest('hex');
+}
+
+/**
+ * Generate What-If Scenarios using AI
+ * These are character-to-character moment analyses for key relationship themes
+ */
+async function generateWhatIfScenarios(relationshipModel, otherProfiles, meData, relationshipType) {
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const isRomantic = relationshipType === 'romantic';
+  
+  // Define scenario themes based on relationship type
+  const themes = isRomantic
+    ? ['conflict', 'intimacy', 'trust', 'autonomy']
+    : ['conflict', 'trust', 'loyalty', 'boundaries'];
+  
+  // Get ALL character names - include everyone
+  const allCharacters = relationshipModel.allCharacters || otherProfiles.map(p => p.name).filter(Boolean);
+  const otherNames = allCharacters.join(', ');
+  const meNames = meData.profile?.characters?.map(c => c.displayName).join(', ') || 'You';
+  const charMap = relationshipModel.characterNames || {};
+  
+  // Build profile context for ALL characters WITH FRANCHISE INFORMATION
+  const profileContext = otherProfiles.map(p => {
+    const traits = p.archetypeSignals?.primaryArchetypes?.slice(0,2).join(', ') || 'complex';
+    const franchise = p.provenance?.sources?.[0] || p.franchise || 'Unknown';
+    const medium = p.medium || 'film';
+    return `- ${p.name} from "${franchise}" (${medium}): ${traits}`;
+  }).join('\n');
+  
+  console.log(`[RelationshipEngine] Generating What-If scenarios for ALL characters: ${otherNames}`);
+  
+  const prompt = `Generate 4 What-If Scenarios for a ${relationshipType} relationship.
+
+==== PARTNER'S/FRIEND'S CHARACTERS (These belong to the OTHER person, NOT the user) ====
+${profileContext}
+
+CRITICAL: These are the PARTNER'S/FRIEND'S characters, NOT the user's characters.
+Use the EXACT franchise/medium shown above for each character.
+
+==== PARTNER'S ROLE ASSIGNMENTS ====
+- Partner's Ego: ${charMap.ego || 'varies'}
+- Partner's Shadow: ${charMap.shadow || 'varies'}
+- Partner's Persona: ${charMap.persona || 'varies'}
+
+${meNames !== 'You' ? `==== USER'S (ME) CHARACTERS ====
+The user identifies with: ${meNames}
+These are SEPARATE from the partner's characters above.
+` : ''}
+==== WRITING PERSPECTIVE ====
+You are writing FOR the user (Me) ABOUT their partner/friend.
+- The USER is reading this to understand how to navigate their relationship
+- When you mention ${otherNames}, these are the PARTNER'S character energies
+- "unconsciousPath" describes what happens if the USER doesn't become aware
+- "consciousPath" describes what happens when the USER engages consciously
+- "actions" are things the USER (reader) can do
+- "avoid" are things the USER should avoid doing
+
+For EACH of these themes: ${themes.join(', ')}
+
+Generate a scenario that describes how the PARTNER'S character energy (from ${otherNames}) affects the relationship.
+Each scenario should mention 1-2 of the PARTNER'S specific characters to ground the dynamic.
+
+Generate a scenario with ALL of these fields (REQUIRED - do not leave any empty):
+{
+  "theme": "theme name",
+  "setup": "A specific real-life situation - reference the partner's character energy (2nd person to user)",
+  "unconsciousPattern": "The projection/trigger dynamic - mention which PARTNER character energy activates (2-3 sentences)",
+  "unconsciousPath": "What happens if YOU react unconsciously - YOUR spiral (2-3 sentences, 2nd person)",
+  "consciousPath": "What happens if YOU engage consciously - YOUR path (2-3 sentences, 2nd person)",
+  "actions": ["Action for YOU to take with their character energy", "Another action", "A third action"],
+  "avoid": ["Something YOU should avoid", "Another thing to avoid"]
+}
+
+Return JSON: {"scenarios": [scenario1, scenario2, scenario3, scenario4]}
+
+CRITICAL RULES:
+1. BOTH unconsciousPath AND consciousPath must have substantive content (2-3 sentences each)
+2. ALL actions and guidance must be in 2nd person (YOU/YOUR) - addressing the user
+3. REFERENCE specific characters from ${otherNames} as the PARTNER'S energies, not the user's
+4. DO NOT assign ${otherNames} characters to the user - these belong to the partner
+5. Use concrete, specific language - not vague therapy-speak`;
+
+  try {
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are a relationship dynamics expert. Generate realistic, specific scenarios with BOTH unconscious and conscious paths filled in completely. Never leave consciousPath empty.' },
+        { role: 'user', content: prompt }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.6,
+      max_tokens: 3000,
+    });
+    
+    const result = safeParseJSON(response.choices[0].message.content, 'WhatIfScenarios');
+    const scenarios = result.scenarios || [];
+    
+    console.log(`[RelationshipEngine] Generated ${scenarios.length} what-if scenarios`);
+    
+    // Validate and ensure all fields are present (with 2nd person language)
+    // IMPORTANT: Check for empty strings explicitly, not just null/undefined
+    return scenarios.map((s, idx) => {
+      // Get raw values
+      const rawUnconsciousPath = s.unconsciousPath?.trim?.() || s.unconscious_path?.trim?.() || '';
+      const rawConsciousPath = s.consciousPath?.trim?.() || s.conscious_path?.trim?.() || '';
+      
+      // Log if either path is empty
+      if (!rawConsciousPath) {
+        console.warn(`[RelationshipEngine] Scenario ${idx} (${s.theme}) missing consciousPath, using default`);
+      }
+      if (!rawUnconsciousPath) {
+        console.warn(`[RelationshipEngine] Scenario ${idx} (${s.theme}) missing unconsciousPath, using default`);
+      }
+      
+      // Default conscious path that's context-aware
+      const defaultConsciousPath = `With awareness, you can pause before reacting. You notice your ${s.theme || 'emotional'} response and name it without blame. By staying present rather than defensive, you create space for genuine understanding. This moment of choice transforms potential conflict into deeper connection.`;
+      
+      // Default unconscious path that's context-aware
+      const defaultUnconsciousPath = `Without awareness, your defenses activate around ${s.theme || 'this'}. You might withdraw, become critical, or try to control the outcome. They sense your tension and respond in kind, pulling you both into a familiar but painful dance.`;
+      
+      return {
+        theme: s.theme || 'general',
+        setup: s.setup?.trim() || 'A challenging moment arises between you.',
+        unconsciousPattern: s.unconsciousPattern?.trim() || 'Old patterns get triggered between you.',
+        unconsciousPath: rawUnconsciousPath || defaultUnconsciousPath,
+        consciousPath: rawConsciousPath || defaultConsciousPath,
+        actions: (s.actions && s.actions.length > 0) ? s.actions : ['You can pause before reacting', 'You can express your feelings without blame', 'You can listen to understand'],
+        avoid: (s.avoid && s.avoid.length > 0) ? s.avoid : ['Attacking their character', 'Going silent without explanation'],
+        examples: [],
+      };
+    });
+  } catch (error) {
+    console.error('[RelationshipEngine] What-If generation error:', error);
+    // Return default scenarios with complete fields (user-focused)
+    return themes.map(theme => ({
+      theme,
+      setup: `A ${theme} moment arises between you.`,
+      unconsciousPattern: 'Shadow projections and unmet needs create a trigger between you.',
+      unconsciousPath: 'Without awareness, your defenses activate. You might withdraw or attack, they respond in kind, and you spiral into a painful loop.',
+      consciousPath: 'With awareness, you can pause. You name what you feel without blame, creating space for understanding. The rupture becomes your opportunity for deeper connection.',
+      actions: ['You can pause before reacting', 'You can name your feeling without blame', 'You can ask what they need'],
+      avoid: ['Attacking their character', 'Going silent without explanation', 'Bringing up old wounds as weapons'],
+      examples: [],
+    }));
+  }
+}
+
+/**
+ * Calculate Ease Zones - where the relationship works naturally (with AI enrichment)
+ */
+async function calculateEaseZones(relationshipModel, otherProfiles, meData) {
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  
+  // Get ALL characters - not just role-mapped ones
+  const allCharacters = relationshipModel.allCharacters || otherProfiles.map(p => p.name).filter(Boolean);
+  const characterNames = allCharacters.join(', ');
+  const charMap = relationshipModel.characterNames || {};
+  
+  // Build profile context WITH FRANCHISE INFORMATION (to prevent AI from making up wrong franchises)
+  const profileContext = otherProfiles.map(p => {
+    const traits = p.archetypeSignals?.primaryArchetypes?.slice(0,2).join(', ') || 'complex';
+    const franchise = p.provenance?.sources?.[0] || p.franchise || 'Unknown';
+    const medium = p.medium || 'film';
+    return `- ${p.name} from "${franchise}" (${medium}): ${traits}`;
+  }).join('\n');
+  
+  console.log(`[RelationshipEngine] Generating Ease Zones for ALL characters: ${characterNames}`);
+  
+  const prompt = `Based on ALL these characters representing your partner's psyche:
+${profileContext}
+
+Generate 4-5 "Ease Zones" - areas where this relationship naturally flows and works well.
+
+CRITICAL: When providing examples, use the EXACT franchise/medium shown above for each character.
+DO NOT change or make up franchises. Use only what's listed above.
+
+IMPORTANT: Include examples from DIFFERENT characters across zones. Don't just use the ego character.
+Each zone should reference a SPECIFIC character from: ${characterNames}
+
+For each zone, provide ONE concrete example from that character's actual film/book/story.
+
+Return JSON:
+{
+  "summary": "2-3 sentences about where this relationship naturally thrives, mentioning 2-3 character names",
+  "zones": [
+    {
+      "zone": "Name of the ease zone (e.g., 'Shared Playfulness')",
+      "description": "1-2 sentences about why this works, mentioning the specific character",
+      "characterHighlight": "Which character from ${characterNames} embodies this",
+      "example": {
+        "characterName": "Character name",
+        "reference": {"title": "EXACT franchise from list above", "year": "year if known", "medium": "medium from list above"},
+        "scene": "Brief scene description showing this dynamic"
+      }
+    }
+  ]
+}
+
+Ensure you reference multiple different characters across the zones, not just one.`;
+
+  try {
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'Generate relationship ease zones based on character archetypes.' },
+        { role: 'user', content: prompt }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.5,
+      max_tokens: 1500,
+    });
+    
+    const result = safeParseJSON(response.choices[0].message.content, 'EaseZones');
+    
+    return {
+      summary: result.summary || `Your relationship naturally flows in several key areas.`,
+      zones: (result.zones || []).map(z => typeof z === 'string' ? z : (z.zone || z.description)),
+      zonesWithExamples: result.zones || [],
+      exampleRefs: (result.zones || []).filter(z => z.example).map(z => ({
+        characterName: z.example?.characterName,
+        reference: z.example?.reference,
+        situation: z.example?.scene,
+        tier: 'B',
+      })),
+    };
+  } catch (error) {
+    console.error('[RelationshipEngine] Ease Zones AI error:', error);
+    
+    // Fallback to computed zones
+    const zones = [];
+    const otherStrengths = new Set();
+    otherProfiles.forEach(p => {
+      p.behavioralTraits?.strengths?.forEach(s => otherStrengths.add(s.toLowerCase()));
+    });
+    
+    if (otherStrengths.has('loyalty')) zones.push('Commitment and reliability');
+    if (otherStrengths.has('humor') || otherStrengths.has('wit')) zones.push('Playfulness and shared laughter');
+    if (otherStrengths.has('empathy') || otherStrengths.has('compassion')) zones.push('Emotional attunement');
+    if (otherStrengths.has('intelligence') || otherStrengths.has('depth')) zones.push('Deep conversations');
+    
+    if (zones.length < 2) {
+      zones.push('Shared values and mutual respect');
+      zones.push('Supporting each other\'s growth');
+    }
+    
+    return {
+      summary: `Your relationship naturally flows in ${zones.length} key areas.`,
+      zones: zones.slice(0, 5),
+      zonesWithExamples: [], // Include empty array for compatibility
+      exampleRefs: [],
+    };
+  }
+}
+
+/**
+ * Calculate Rupture Loops - where the relationship breaks (with AI enrichment)
+ */
+async function calculateRuptureLoops(relationshipModel, otherProfiles, meData) {
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  
+  // Get ALL characters - not just role-mapped ones
+  const allCharacters = relationshipModel.allCharacters || otherProfiles.map(p => p.name).filter(Boolean);
+  const characterNames = allCharacters.join(', ');
+  const charMap = relationshipModel.characterNames || {};
+  
+  // Build profile context WITH FRANCHISE INFORMATION (to prevent AI from making up wrong franchises)
+  const profileContext = otherProfiles.map(p => {
+    const traits = p.archetypeSignals?.primaryArchetypes?.slice(0,2).join(', ') || 'complex';
+    const liabilities = p.behavioralTraits?.liabilities?.slice(0,2).join(', ') || 'hidden';
+    const franchise = p.provenance?.sources?.[0] || p.franchise || 'Unknown';
+    const medium = p.medium || 'film';
+    return `- ${p.name} from "${franchise}" (${medium}): ${traits} (risks: ${liabilities})`;
+  }).join('\n');
+  
+  console.log(`[RelationshipEngine] Generating Rupture Loops for ALL characters: ${characterNames}`);
+  
+  const prompt = `Based on ALL these characters representing your partner's psyche:
+${profileContext}
+
+Generate 3-4 "Rupture Loops" - recurring conflict patterns that can derail this relationship.
+
+CRITICAL: When providing examples, use the EXACT franchise/medium shown above for each character.
+DO NOT change or make up franchises. Use only what's listed above.
+
+IMPORTANT: 
+1. Draw examples from DIFFERENT characters - don't just use the shadow character
+2. The "repair" field should be written for YOU (the user reading this) - what YOU can do
+3. Reference specific characters from ${characterNames} in each loop
+
+For each loop, provide ONE concrete example from that character's actual film/book/story.
+
+Return JSON:
+{
+  "summary": "1-2 sentences about key vulnerabilities, mentioning 2 character names",
+  "loops": [
+    {
+      "name": "Name of the loop (e.g., 'The Control Spiral')",
+      "trigger": "What sets it off - mention the character whose energy activates",
+      "pattern": "The escalation pattern (e.g., 'Restriction → Rebellion → Resentment')",
+      "characterSource": "Which character from ${characterNames} this loop originates from",
+      "repair": "What YOU can do to break this loop (2nd person - 'You can...')",
+      "example": {
+        "characterName": "Character name",
+        "reference": {"title": "EXACT franchise from list above", "year": "year if known", "medium": "medium from list above"},
+        "scene": "Brief scene description showing this pattern"
+      }
+    }
+  ]
+}
+
+Ensure you reference multiple different characters across the loops.`;
+
+  try {
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'Generate relationship rupture patterns based on character shadow dynamics.' },
+        { role: 'user', content: prompt }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.5,
+      max_tokens: 1500,
+    });
+    
+    const result = safeParseJSON(response.choices[0].message.content, 'RuptureLoops');
+    
+    return {
+      summary: result.summary || `Watch for these patterns that can derail your connection.`,
+      loops: (result.loops || []).map(l => ({
+        name: l.name,
+        trigger: l.trigger,
+        pattern: l.pattern,
+        repair: l.repair,
+      })),
+      exampleRefs: (result.loops || []).filter(l => l.example).map(l => ({
+        characterName: l.example?.characterName,
+        reference: l.example?.reference,
+        situation: l.example?.scene,
+        tier: 'B',
+      })),
+    };
+  } catch (error) {
+    console.error('[RelationshipEngine] Rupture Loops AI error:', error);
+    
+    // Fallback to computed loops
+    const loops = [];
+    const otherLiabilities = new Set();
+    const otherTriggers = new Set();
+    
+    otherProfiles.forEach(p => {
+      p.behavioralTraits?.liabilities?.forEach(l => otherLiabilities.add(l.toLowerCase()));
+      p.behavioralTraits?.triggers?.forEach(t => otherTriggers.add(t.toLowerCase()));
+    });
+    
+    if (otherLiabilities.has('control') || otherTriggers.has('being controlled')) {
+      loops.push({
+        name: 'The Control Spiral',
+        trigger: 'When one person feels their autonomy is threatened',
+        pattern: 'Restriction → Rebellion → More restriction → Resentment',
+        repair: 'You can renegotiate boundaries before resentment builds. Name what you need without demanding.',
+      });
+    }
+    
+    if (otherLiabilities.has('withdrawal') || otherTriggers.has('abandonment')) {
+      loops.push({
+        name: 'The Pursuit-Distance Dance',
+        trigger: 'When one withdraws under stress',
+        pattern: 'Withdrawal → Pursuit → More withdrawal → Panic',
+        repair: 'You can signal your need for space while reassuring you\'ll return. Don\'t disappear without a word.',
+      });
+    }
+    
+    if (loops.length < 2) {
+      loops.push({
+        name: 'The Assumption Trap',
+        trigger: 'When expectations go unspoken',
+        pattern: 'Unmet expectation → Disappointment → Blame',
+        repair: 'You can verbalize your needs before they become resentments. Ask rather than assume.',
+      });
+    }
+    
+    return {
+      summary: `Watch for these patterns that can derail your connection.`,
+      loops: loops.slice(0, 4),
+      exampleRefs: [],
+    };
+  }
 }

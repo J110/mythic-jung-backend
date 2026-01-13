@@ -1,6 +1,6 @@
 import express from 'express';
 import { memoryStore } from '../storage/memoryStore.js';
-import { generateRelationshipOutput } from '../services/relationshipEngine.js';
+import { generateRelationshipOutput, clearRelationshipCache } from '../services/relationshipEngine.js';
 
 export const relationshipRouter = express.Router();
 
@@ -120,27 +120,48 @@ relationshipRouter.post('/regenerate', async (req, res, next) => {
         console.log(`[Relationship] Returning cached output for user ${userId}`);
         return res.json(cached);
       }
+    } else {
+      // Force regeneration - clear all caches
+      clearRelationshipCache();
+      memoryStore.clearRelationshipOutput(userId);
+      console.log(`[Relationship] Force regeneration - caches cleared for user ${userId}`);
     }
 
-    console.log(`[Relationship] Generating output for user ${userId}...`);
+    console.log(`[Relationship] Generating output for user ${userId} (v2 engine)...`);
 
-    // Get optional Me data for enrichment
+    // NOTE: Relationship output is INDEPENDENT from Me output
+    // We do NOT use meOutput.selfModel to avoid cross-dependency issues
+    // where Me output changes would affect relationship output
+    // 
+    // If comparison features are needed in the future, they should be:
+    // 1. Computed separately and stored with the relationship output
+    // 2. OR requested via a separate comparison endpoint
     const meData = {
       profile: memoryStore.getProfile(userId),
-      selfModel: null, // Will be populated if Me output exists
+      selfModel: null, // Intentionally null - relationship is independent
       assessments: memoryStore.getAssessmentAnswers(userId),
     };
     
-    const meOutput = memoryStore.getOutput(userId);
-    if (meOutput?.selfModel) {
-      meData.selfModel = meOutput.selfModel;
+    console.log(`[Relationship] Using independent mode (no Me output dependency)`);
+
+    // Get pre-recognized characters from resonance flow (prevents re-recognition)
+    const preRecognizedCharacters = memoryStore.getRelationshipCharacterReferences(userId);
+    const referenceHints = relationshipSet.referenceHints || {};
+    
+    console.log(`[Relationship] Pre-recognized characters: ${preRecognizedCharacters.length}`);
+    if (preRecognizedCharacters.length > 0) {
+      console.log(`[Relationship] Using pre-recognized: ${preRecognizedCharacters.map(c => c.canonical?.name || c.input).join(', ')}`);
     }
 
-    // Generate relationship output
+    // Generate relationship output with pre-recognized characters
     const output = await generateRelationshipOutput(
       relationshipSet,
       meData,
-      { moduleKeys }
+      { 
+        moduleKeys,
+        preRecognizedCharacters: preRecognizedCharacters.length >= 4 ? preRecognizedCharacters : null,
+        referenceHints,
+      }
     );
 
     // Cache the output
@@ -174,6 +195,26 @@ relationshipRouter.delete('/set', async (req, res, next) => {
     
     console.log(`[Relationship] Cleared for user ${userId}`);
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================================================
+// POST /v1/relationship/clear-cache - Clear all relationship caches
+// ============================================================================
+relationshipRouter.post('/clear-cache', async (req, res, next) => {
+  try {
+    const userId = getUserId(req);
+    
+    // Clear engine cache
+    clearRelationshipCache();
+    
+    // Clear stored output
+    memoryStore.clearRelationshipOutput(userId);
+    
+    console.log(`[Relationship] All caches cleared for user ${userId}`);
+    res.json({ success: true, message: 'All relationship caches cleared' });
   } catch (error) {
     next(error);
   }

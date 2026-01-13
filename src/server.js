@@ -6,6 +6,11 @@ import { assessmentRouter } from './routes/assessments.js';
 import { generateRouter } from './routes/generate.js';
 import { outputRouter } from './routes/output.js';
 import { relationshipRouter } from './routes/relationship.js';
+import { resonanceRouter } from './routes/resonance.js';
+import { toneRouter } from './routes/tone.js';
+import { archetypesRouter } from './routes/archetypes.js';
+import { runsRouter } from './routes/runs.js';
+import { usersRouter } from './routes/users.js';
 
 dotenv.config();
 
@@ -45,6 +50,12 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// API Routes - Users (authentication/identification)
+app.use('/v1/users', usersRouter);
+
+// API Routes - Resonance (clarification flow)
+app.use('/v1/resonance', resonanceRouter);
+
 // API Routes - Me domain
 app.use('/v1/profile', profileRouter);
 app.use('/v1/assessments', assessmentRouter);
@@ -53,6 +64,15 @@ app.use('/v1/output', outputRouter);
 
 // API Routes - Relationship domain (independent)
 app.use('/v1/relationship', relationshipRouter);
+
+// API Routes - Tone (narrative presentation)
+app.use('/v1/tone', toneRouter);
+
+// API Routes - Archetypes (constellation)
+app.use('/v1', archetypesRouter);
+
+// API Routes - Runs (unified PsycheModel)
+app.use('/v1/runs', runsRouter);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

@@ -8,6 +8,7 @@
  */
 
 import OpenAI from 'openai';
+import { safeParseJSON } from '../utils/jsonParser.js';
 
 let openai = null;
 
@@ -386,7 +387,7 @@ Respond with valid JSON only.`,
   });
 
   const content = response.choices[0].message.content.trim();
-  const parsed = JSON.parse(content);
+  const parsed = safeParseJSON(content, 'ExampleEngine.generateAllExamples');
   
   return validateAndStructureExamples(parsed, mappings);
 }
