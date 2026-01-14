@@ -23,16 +23,28 @@ usersRouter.post('/login', async (req, res) => {
     const normalizedUsername = username.trim().toLowerCase();
     
     // Check if user exists
-    let user = await db.getUserByUsername(normalizedUsername);
+    let user = null;
     let isReturningUser = false;
     let hasExistingData = false;
+    
+    try {
+      user = await db.getUserByUsername(normalizedUsername);
+    } catch (dbError) {
+      console.log(`[Users] DB lookup failed, treating as new user: ${dbError.message}`);
+      user = null;
+    }
     
     if (user) {
       // Returning user - check if they have existing data
       isReturningUser = true;
-      const meOutput = await db.getMeOutput(user.id);
-      const relationshipOutput = await db.getRelationshipOutput(user.id);
-      hasExistingData = !!(meOutput?.story || relationshipOutput?.myth);
+      try {
+        const meOutput = await db.getMeOutput(user.id);
+        const relationshipOutput = await db.getRelationshipOutput(user.id);
+        hasExistingData = !!(meOutput?.story || relationshipOutput?.myth);
+      } catch (e) {
+        console.log(`[Users] Could not check existing data: ${e.message}`);
+        hasExistingData = false;
+      }
       
       console.log(`[Users] Returning user: ${normalizedUsername} (${user.id}), hasData: ${hasExistingData}`);
     } else {
@@ -49,22 +61,33 @@ usersRouter.post('/login', async (req, res) => {
       console.log(`[Users] New user created: ${normalizedUsername} (${userId})`);
     }
     
-    // Update last login
-    user.lastLoginAt = new Date().toISOString();
-    await db.saveUser(user);
+    // Update last login (ignore errors)
+    try {
+      user.lastLoginAt = new Date().toISOString();
+      await db.saveUser(user);
+    } catch (e) {
+      console.log(`[Users] Could not update last login: ${e.message}`);
+    }
     
     // Get summary of existing data if any
     let dataSummary = null;
     if (hasExistingData) {
-      const meOutput = await db.getMeOutput(user.id);
-      const packets = await db.getLockedPackets(user.id);
-      
-      dataSummary = {
-        characterCount: packets?.length || 0,
-        hasStory: !!meOutput?.story,
-        hasRelationship: !!(await db.getRelationshipOutput(user.id))?.myth,
-        lastUpdated: meOutput?.generatedAt || user.lastLoginAt,
-      };
+      try {
+        const meOutput = await db.getMeOutput(user.id);
+        const packets = await db.getLockedPackets(user.id);
+        const relationshipOutput = await db.getRelationshipOutput(user.id);
+        
+        dataSummary = {
+          characterCount: packets?.length || 0,
+          hasStory: !!meOutput?.story,
+          hasRelationship: !!relationshipOutput?.myth,
+          lastUpdated: meOutput?.generatedAt || user.lastLoginAt,
+        };
+      } catch (e) {
+        console.log(`[Users] Could not get data summary: ${e.message}`);
+        dataSummary = null;
+        hasExistingData = false;
+      }
     }
     
     res.json({
