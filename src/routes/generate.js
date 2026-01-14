@@ -2,6 +2,15 @@ import express from 'express';
 import { db } from '../storage/database.js';
 import { generateOutput } from '../services/generationService.js';
 import { queueAIRequest, AI_PRIORITY } from '../services/aiQueue.js';
+import {
+  createJob,
+  updateJobProgress,
+  completeJob,
+  failJob,
+  getJob,
+  getLatestJobForUser,
+  JOB_STATUS,
+} from '../services/jobManager.js';
 
 export const generateRouter = express.Router();
 
@@ -9,16 +18,22 @@ const getUserId = (req) => {
   return req.headers['x-user-id'] || 'default-user';
 };
 
-// POST /v1/generate - Generate output
+/**
+ * POST /v1/generate - Start async generation
+ * Returns immediately with a jobId, processes in background
+ */
 generateRouter.post('/', async (req, res, next) => {
   try {
     const userId = getUserId(req);
-    const { force = false } = req.body;
+    const { force = false, async: useAsync = true } = req.body;
+
+    console.log(`[Generate] Request for user ${userId}, force=${force}, async=${useAsync}`);
 
     // Get cached output if not forcing regeneration
     if (!force) {
       const cached = await db.getMeOutput(userId);
       if (cached) {
+        console.log(`[Generate] Returning cached output for user ${userId}`);
         return res.json(cached);
       }
     }
@@ -36,68 +51,153 @@ generateRouter.post('/', async (req, res, next) => {
     const characterReferences = await db.getCharacterReferences(userId);
     userData.characterReferences = characterReferences;
 
-    const assessmentCount = userData.assessments?.length || 0;
-    const refCount = characterReferences.filter(r => r?.mode !== 'NONE').length;
-    console.log(`Generating output for user ${userId} with ${userData.profile.characters.length} characters, ${assessmentCount} assessments, ${refCount} references`);
+    // Create a job for tracking
+    const job = createJob(userId);
+    
+    // Start async generation
+    console.log(`[Generate] Starting async generation for job ${job.id}`);
+    
+    // Run generation in background (don't await)
+    runGenerationInBackground(job.id, userId, userData, force).catch(err => {
+      console.error(`[Generate] Background generation failed for job ${job.id}:`, err);
+    });
+    
+    // Return immediately with job info
+    res.json({
+      jobId: job.id,
+      status: job.status,
+      message: 'Generation started. Poll /v1/generate/status/:jobId for progress.',
+    });
+    
+  } catch (error) {
+    console.error('[Generate] Error:', error);
+    return res.status(500).json({
+      error: error.message || 'An error occurred during generation.',
+      code: 'GENERATION_ERROR',
+    });
+  }
+});
 
-    // Generate output (queued to prevent rate limits)
+/**
+ * GET /v1/generate/status/:jobId - Get job status and progress
+ */
+generateRouter.get('/status/:jobId', async (req, res) => {
+  const { jobId } = req.params;
+  const job = getJob(jobId);
+  
+  if (!job) {
+    return res.status(404).json({
+      error: 'Job not found',
+      code: 'JOB_NOT_FOUND',
+    });
+  }
+  
+  // If completed, include the result
+  if (job.status === JOB_STATUS.COMPLETED && job.result) {
+    return res.json({
+      jobId: job.id,
+      status: job.status,
+      progress: job.progress,
+      currentStep: job.currentStep,
+      totalSteps: job.totalSteps,
+      stepLabel: job.stepLabel,
+      result: job.result,
+    });
+  }
+  
+  // If failed, include the error
+  if (job.status === JOB_STATUS.FAILED) {
+    return res.json({
+      jobId: job.id,
+      status: job.status,
+      progress: job.progress,
+      currentStep: job.currentStep,
+      totalSteps: job.totalSteps,
+      stepLabel: job.stepLabel,
+      error: job.error,
+    });
+  }
+  
+  // In progress
+  return res.json({
+    jobId: job.id,
+    status: job.status,
+    progress: job.progress,
+    currentStep: job.currentStep,
+    totalSteps: job.totalSteps,
+    stepLabel: job.stepLabel,
+  });
+});
+
+/**
+ * GET /v1/generate/latest - Get latest job for user
+ */
+generateRouter.get('/latest', async (req, res) => {
+  const userId = getUserId(req);
+  const job = getLatestJobForUser(userId);
+  
+  if (!job) {
+    return res.status(404).json({
+      error: 'No jobs found for user',
+      code: 'NO_JOBS',
+    });
+  }
+  
+  // If completed, include the result
+  if (job.status === JOB_STATUS.COMPLETED && job.result) {
+    return res.json({
+      jobId: job.id,
+      status: job.status,
+      progress: job.progress,
+      currentStep: job.currentStep,
+      totalSteps: job.totalSteps,
+      stepLabel: job.stepLabel,
+      result: job.result,
+    });
+  }
+  
+  return res.json({
+    jobId: job.id,
+    status: job.status,
+    progress: job.progress,
+    currentStep: job.currentStep,
+    totalSteps: job.totalSteps,
+    stepLabel: job.stepLabel,
+    error: job.error,
+  });
+});
+
+/**
+ * Run generation in background with progress updates
+ */
+async function runGenerationInBackground(jobId, userId, userData, force) {
+  try {
+    updateJobProgress(jobId, 1, 'Recognizing characters...');
+    
+    const assessmentCount = userData.assessments?.length || 0;
+    const refCount = userData.characterReferences?.filter(r => r?.mode !== 'NONE').length || 0;
+    console.log(`[Generate] Job ${jobId}: ${userData.profile.characters.length} characters, ${assessmentCount} assessments, ${refCount} references`);
+
+    // Generate output with progress callback
     const output = await queueAIRequest(
-      () => generateOutput(userData, { force }),
+      () => generateOutput(userData, { 
+        force,
+        onProgress: (step, label) => {
+          updateJobProgress(jobId, step, label);
+        },
+      }),
       { priority: AI_PRIORITY.NORMAL }
     );
 
     // Cache the output
     await db.saveMeOutput(userId, output);
+    console.log(`[Generate] Job ${jobId}: Output generated and cached`);
 
-    console.log(`Output generated and cached for user ${userId}`);
+    // Mark job as complete
+    completeJob(jobId, output);
     
-    // Log response details
-    const responseJson = JSON.stringify(output);
-    console.log(`[Generate] Response size: ${responseJson.length} bytes`);
-    console.log(`[Generate] Output keys: ${Object.keys(output).join(', ')}`);
-    console.log(`[Generate] Has constellation: ${!!output.constellation}`);
-    console.log(`[Generate] Sending response...`);
-    
-    res.json(output);
-    console.log(`[Generate] Response sent successfully`);
   } catch (error) {
-    console.error('Generation error:', error);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    
-    // Return validation errors with proper status code
-    if (error.message && (
-      error.message.includes('recognized') || 
-      error.message.includes('characters') ||
-      error.message.includes('TV, movies, books') ||
-      error.message.includes('Invalid characters')
-    )) {
-      return res.status(400).json({
-        error: error.message,
-        code: 'CHARACTERS_NOT_RECOGNIZED',
-        userMessage: 'The characters you entered are not recognized. Please add proper character names from stories, movies, books, or mythology to begin the discovery.',
-      });
-    }
-    
-    // Handle OpenAI API errors
-    if (error.message && (
-      error.message.includes('OpenAI') ||
-      error.message.includes('API') ||
-      error.message.includes('model') ||
-      error.status === 404 ||
-      error.status === 401
-    )) {
-      return res.status(500).json({
-        error: 'AI service error. Please check your OpenAI API key and model availability.',
-        code: 'AI_SERVICE_ERROR',
-        details: error.message,
-      });
-    }
-    
-    // Generic error response
-    return res.status(500).json({
-      error: error.message || 'An error occurred during generation. Please try again.',
-      code: 'GENERATION_ERROR',
-    });
+    console.error(`[Generate] Job ${jobId} failed:`, error);
+    failJob(jobId, error);
   }
-});
+}

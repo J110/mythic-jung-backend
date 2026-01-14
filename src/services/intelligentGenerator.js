@@ -91,6 +91,8 @@ export async function generateIntelligentOutput(userData, options = {}) {
   const characters = profile?.characters || [];
   // Get references from options (passed from generation service) or userData
   const characterReferences = options.characterReferences || userData.characterReferences || [];
+  // Progress callback for async job tracking
+  const onProgress = options.onProgress || ((step, label) => {});
 
   if (characters.length === 0) {
     throw new Error('No characters provided');
@@ -110,6 +112,7 @@ export async function generateIntelligentOutput(userData, options = {}) {
   console.log('[Intelligent Generator] Input hash:', inputHash);
 
   // Step 1: Character Recognition (gpt-4o-mini - OK for short tasks)
+  onProgress(1, 'Recognizing characters...');
   console.log('[Step 1] Character Recognition Engine (gpt-4o-mini)...');
   const characterInputs = characters.map(c => c.displayName || c.id);
   const recognitionResult = await recognizeCharacters(characterInputs);
@@ -160,6 +163,7 @@ export async function generateIntelligentOutput(userData, options = {}) {
 
   // Step 2: Character Discovery (gpt-4o - REQUIRED for archetypal depth)
   // Discovery has its own internal caching by canonicalId + reference
+  onProgress(2, 'Discovering character profiles...');
   console.log('[Step 2] Character Discovery Engine (gpt-4o)...');
   
   // Pass reference constraints from Resonance Engine if available
@@ -173,6 +177,7 @@ export async function generateIntelligentOutput(userData, options = {}) {
   console.log(`[Step 2] Discovery: ${profiles.length} profiles`);
 
   // Step 3: Synthesis (NO LLM - deterministic, explainable, stable)
+  onProgress(3, 'Synthesizing psychological model...');
   console.log('[Step 3] Synthesis Engine (deterministic)...');
   const selfModel = synthesizeSelfModel(profiles, assessments);
   console.log(`[Step 3] Synthesis: ${selfModel.tensions.length} tensions identified`);
@@ -186,6 +191,7 @@ export async function generateIntelligentOutput(userData, options = {}) {
 
   // Step 4: Narrative Generation (gpt-4o - REQUIRED for product quality)
   // This is the core product - mythic coherence, symbolic depth, emotional resonance
+  onProgress(4, 'Generating your narrative...');
   console.log('[Step 4] Narrative Engine (gpt-4o - QUALITY CRITICAL)...');
   console.log('[Step 4] SelfModel has identificationDynamics:', !!selfModel.identificationDynamics);
   const narrativeOutput = await generateNarrative(selfModel, profiles, options);
@@ -194,6 +200,7 @@ export async function generateIntelligentOutput(userData, options = {}) {
   console.log('[Step 4] narrativeOutput keys:', Object.keys(narrativeOutput));
 
   // Step 5: Example Generation (gpt-4o - real examples supporting the narrative)
+  onProgress(5, 'Finding character examples...');
   console.log('[Step 5] Example Engine - generating real character examples...');
   let examples = null;
   
@@ -214,6 +221,7 @@ export async function generateIntelligentOutput(userData, options = {}) {
   }
 
   // Step 6: Compute Archetype Constellation (deterministic, fast)
+  onProgress(6, 'Computing archetype constellation...');
   console.log('[Step 6] Computing archetype constellation...');
   let constellation = null;
   try {
