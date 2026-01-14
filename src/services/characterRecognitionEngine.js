@@ -129,41 +129,56 @@ async function recognizeCharactersBatch(inputs, referenceHints = {}) {
     });
     
     // Enhanced prompt - AI-only recognition with clear examples
-    const prompt = `You are recognizing ${inputs.length} character inputs. Return ONE result for EACH input, in the SAME ORDER.
+    const prompt = `You are recognizing ${inputs.length} inputs. Return ONE result for EACH input, in the SAME ORDER.
 
 INPUTS:
 ${inputsWithRefs.join('\n')}
 
 CRITICAL RULES:
 
-1. RECOGNIZE FAMOUS CHARACTERS with HIGH CONFIDENCE (0.85+):
-   These are well-known fictional characters - recognize them directly:
+1. RECOGNIZE FAMOUS FICTIONAL CHARACTERS with HIGH CONFIDENCE (0.85+):
    - Jack Reacher, James Bond, Sherlock Holmes, Batman, Spider-Man, Superman
    - Gregory House (House M.D.), Rick Sanchez (Rick and Morty), Don Draper (Mad Men)
    - Walter White (Breaking Bad), Tony Soprano (The Sopranos)
    - Trinity (The Matrix), Lara Axelrod (Billions), Bobby Axelrod (Billions)
    - Patch Adams, Allie Hamilton (The Notebook)
    
-   For these, set: recognized=true, confidence=0.85-0.95
+2. RECOGNIZE REAL-LIFE PUBLIC FIGURES with HIGH CONFIDENCE (0.85+):
+   These are real people who can be analyzed for their psychological patterns:
+   
+   CONTEMPORARY PUBLIC FIGURES:
+   - Politicians: Donald Trump, Barack Obama, Joe Biden, Vladimir Putin, Xi Jinping, Narendra Modi, Angela Merkel
+   - Business: Elon Musk, Jeff Bezos, Bill Gates, Warren Buffett, Mark Zuckerberg, Steve Jobs
+   - Entertainment: Oprah Winfrey, Kim Kardashian, Taylor Swift, Beyoncé, Kanye West
+   - Sports: Michael Jordan, LeBron James, Cristiano Ronaldo, Lionel Messi, Serena Williams
+   
+   For these: recognized=true, confidence=0.90, medium="real-life", franchise="Public Figure"
+   
+   HISTORICAL FIGURES:
+   - Philosophers: Plato, Aristotle, Socrates, Confucius, Nietzsche, Kant, Marx
+   - Leaders: Alexander the Great, Julius Caesar, Napoleon, Abraham Lincoln, Martin Luther King Jr., Gandhi, Cleopatra
+   - Scientists: Einstein, Newton, Darwin, Marie Curie, Galileo, Tesla
+   - Artists: Leonardo da Vinci, Michelangelo, Shakespeare, Mozart, Beethoven
+   
+   For these: recognized=true, confidence=0.90, medium="historical", franchise="Historical Figure"
 
-2. ACTOR NAMES with Reference:
+3. ACTOR NAMES with Reference:
    If input is an ACTOR NAME with a Reference, return the CHARACTER they played:
    - "Zooey Deschanel" + Reference "Yes Man" → CHARACTER: "Allison" (not the actor!)
    - "Priyanka Chopra" + Reference "Don" → CHARACTER: "Roma"
-   - "Priyanka Chopra" + Reference "Saat Khoon Maaf" → CHARACTER: "Susanna Anna-Marie Johannes"
    
    Set: inputWasActor=true, name=CHARACTER_NAME
    
    If you DON'T KNOW the character, set:
    - recognized=false, needsClarification=true, clarificationReason="actor_character_unknown"
 
-3. UNCERTAIN CHARACTERS:
+4. UNCERTAIN INPUTS:
    If confidence < 0.7 OR you're unsure, set:
    - needsClarification=true, clarificationReason="low_confidence"
    
-   DO NOT make up character names. Ask for clarification instead.
+   DO NOT make up names. Ask for clarification instead.
 
-4. RETURN COMPLETE ARRAY:
+5. RETURN COMPLETE ARRAY:
    You MUST return ${inputs.length} results, one for each input, in the SAME ORDER.
 
 Return valid JSON:
@@ -174,9 +189,9 @@ Return valid JSON:
       "recognized": true,
       "needsClarification": false,
       "clarificationReason": null,
-      "name": "Character Name",
-      "franchise": "Source",
-      "medium": "film/tv/book",
+      "name": "Character/Person Name",
+      "franchise": "Source (e.g., 'Mission: Impossible', 'Public Figure', 'Historical Figure')",
+      "medium": "film/tv/book/real-life/historical",
       "confidence": 0.9,
       "matchesReference": true,
       "inputWasActor": false
@@ -187,32 +202,49 @@ Return valid JSON:
     const response = await client.chat.completions.create({
       model: process.env.OPENAI_RECOGNITION_MODEL || 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: `You are a character recognition AI. Your task: identify fictional characters from movies, TV shows, books, and comics.
+        { role: 'system', content: `You are a recognition AI. Your task: identify BOTH fictional characters AND real-life public figures.
 
 YOUR CAPABILITIES:
-- You know thousands of fictional characters from popular culture
-- You can identify characters by name alone (e.g., "Jack Reacher", "James Bond", "Gregory House")
+- You know thousands of fictional characters from popular culture (movies, TV, books, comics)
+- You know famous real-life public figures (politicians, celebrities, business leaders, athletes)
+- You know historical figures (philosophers, leaders, scientists, artists)
 - You can map actor names to characters when a movie/show reference is provided
 - You ask for clarification when uncertain (never guess)
 
-FAMOUS CHARACTERS YOU MUST RECOGNIZE (high confidence):
+FICTIONAL CHARACTERS YOU MUST RECOGNIZE (confidence 0.85+):
 Film: Jack Reacher, James Bond, Trinity (Matrix), Patch Adams, Allie Hamilton
 TV: Gregory House, Rick Sanchez, Don Draper, Lara Axelrod, Bobby Axelrod, Walter White, Tony Soprano
 Comics: Batman, Spider-Man, Superman, Joker
 
-ACTOR-TO-CHARACTER:
+REAL-LIFE PUBLIC FIGURES YOU MUST RECOGNIZE (confidence 0.90+):
+Politicians: Donald Trump, Barack Obama, Joe Biden, Vladimir Putin, Xi Jinping, Narendra Modi
+Business: Elon Musk, Jeff Bezos, Bill Gates, Steve Jobs, Mark Zuckerberg
+Entertainment: Oprah Winfrey, Taylor Swift, Beyoncé, Kim Kardashian
+Sports: Michael Jordan, LeBron James, Cristiano Ronaldo, Serena Williams
+
+For real-life figures, use: medium="real-life", franchise="Public Figure"
+
+HISTORICAL FIGURES YOU MUST RECOGNIZE (confidence 0.90+):
+Philosophers: Plato, Aristotle, Socrates, Confucius, Nietzsche, Kant
+Leaders: Alexander the Great, Julius Caesar, Napoleon, Abraham Lincoln, Gandhi, Martin Luther King Jr.
+Scientists: Einstein, Newton, Darwin, Marie Curie, Tesla
+Artists: Leonardo da Vinci, Shakespeare, Mozart, Beethoven
+
+For historical figures, use: medium="historical", franchise="Historical Figure"
+
+ACTOR-TO-CHARACTER MAPPING:
 When input is an actor name WITH a reference:
 - "Zooey Deschanel" in "Yes Man" → CHARACTER: "Allison"
-- "Priyanka Chopra" in "Don" → CHARACTER: "Roma"  
-- "Priyanka Chopra" in "Saat Khoon Maaf" → CHARACTER: "Susanna Anna-Marie Johannes"
+- "Priyanka Chopra" in "Don" → CHARACTER: "Roma"
 
 If you don't know which character the actor played, set needsClarification=true.
 
 KEY RULES:
 1. Return ONE result for EACH input, in the SAME ORDER
-2. Set confidence 0.85+ for well-known characters
-3. Set needsClarification=true if confidence < 0.7
-4. NEVER make up character names - ask for help instead
+2. Set confidence 0.85+ for well-known fictional characters
+3. Set confidence 0.90+ for well-known real-life and historical figures
+4. Set needsClarification=true if confidence < 0.7
+5. NEVER make up names - ask for help instead
 
 Return valid JSON with "characters" array containing all results.` },
         { role: 'user', content: prompt },
@@ -479,26 +511,31 @@ async function retrieveCandidates(normalized) {
 
   try {
     console.log(`[Recognition] Retrieving candidates for: "${normalized.cleaned}"`);
-    const prompt = `You are a character recognition expert. For the input "${normalized.cleaned}", find recognized characters from:
+    const prompt = `You are a recognition expert. For the input "${normalized.cleaned}", find matches from:
+
+FICTIONAL SOURCES:
 - TV shows and series
-- Movies and films
+- Movies and films  
 - Books and literature
 - Mythology and folklore
-- Real historical figures
-- Real contemporary public figures
+- Comics and graphic novels
+
+REAL-LIFE SOURCES:
+- Contemporary public figures (politicians, celebrities, business leaders, athletes)
+- Historical figures (philosophers, leaders, scientists, artists)
 
 ${normalized.hints.length > 0 ? `Hints provided: ${normalized.hints.map(h => h.value).join(', ')}` : ''}
 
-IMPORTANT: If the input is clearly NOT a character (product, object, household item like "tea cup", "air purifier", "uncle chips", etc.), return an empty array.
+IMPORTANT: If the input is clearly NOT a character or person (product, object, household item like "tea cup", "air purifier", "uncle chips", etc.), return an empty array.
 
 Return JSON in this format:
 {
   "candidates": [
     {
       "canonicalId": "unique_stable_id",
-      "name": "Character Name",
-      "franchise": "Franchise/Universe",
-      "medium": "film|tv|book|mythology|real-life",
+      "name": "Name",
+      "franchise": "Franchise/Universe OR 'Public Figure' OR 'Historical Figure'",
+      "medium": "film|tv|book|mythology|real-life|historical",
       "portrayal": "Actor/Era if applicable",
       "description": "Brief 2-3 line description",
       "aliases": ["alternative names"],
@@ -509,15 +546,14 @@ Return JSON in this format:
 
 Return up to 10 best candidates. 
 
-IMPORTANT: For well-known characters like "Ethan Hunt", "Nelson Mandela", "Plato", "Putin", "Spider-Man", "James Bond", "Gandalf", "Sherlock Holmes", "Aragorn", "Hermione Granger", "Neo", "Atticus Finch", etc., return them with HIGH matchScore (0.85-1.0).
+HIGH CONFIDENCE MATCHES (matchScore 0.90-0.95):
+- Fictional: Ethan Hunt, Spider-Man, James Bond, Gandalf, Sherlock Holmes, Hermione Granger, Neo
+- Contemporary: Donald Trump, Elon Musk, Taylor Swift, Putin, Obama, LeBron James
+- Historical: Plato, Aristotle, Einstein, Gandhi, Napoleon, Lincoln, Shakespeare, Tesla
 
-For these specific characters, use these matchScores:
-- "Ethan Hunt" or "ethan hunt": 0.95
-- "Nelson Mandela" or "nelson mandela": 0.95
-- "Plato": 0.95
-- "Putin" or "Vladimir Putin": 0.90
-- "Spider-Man" or "spiderman": 0.95
-- "James Bond" or "james bond": 0.95`;
+For real-life figures:
+- Use franchise="Public Figure" and medium="real-life" for contemporary
+- Use franchise="Historical Figure" and medium="historical" for historical`;
 
     const response = await client.chat.completions.create({
       // Recognition is short, non-symbolic - gpt-4o-mini is acceptable here
