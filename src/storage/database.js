@@ -13,19 +13,38 @@ export async function initDatabase() {
   // Check if we have a real database URL (not the placeholder)
   if (databaseUrl && !databaseUrl.includes('johndoe:randompassword')) {
     try {
-      const { PrismaClient } = await import('../generated/prisma/index.js');
+      console.log('[Database] Attempting to connect to PostgreSQL...');
+      
+      // Try to import Prisma client
+      let PrismaClient;
+      try {
+        const prismaModule = await import('../generated/prisma/index.js');
+        PrismaClient = prismaModule.PrismaClient;
+      } catch (importError) {
+        console.warn('[Database] Prisma client not found or failed to import:', importError.message);
+        console.log('[Database] Falling back to in-memory storage');
+        useDatabase = false;
+        return false;
+      }
+      
       prisma = new PrismaClient({
         log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
       });
       
-      // Test connection
-      await prisma.$connect();
+      // Test connection with timeout
+      const connectPromise = prisma.$connect();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Connection timeout')), 10000)
+      );
+      
+      await Promise.race([connectPromise, timeoutPromise]);
       useDatabase = true;
       console.log('[Database] Connected to PostgreSQL');
       return true;
     } catch (error) {
       console.warn('[Database] Failed to connect to PostgreSQL, falling back to in-memory storage:', error.message);
       useDatabase = false;
+      prisma = null;
       return false;
     }
   } else {

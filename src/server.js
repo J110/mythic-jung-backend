@@ -28,37 +28,30 @@ const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 // ============================================================================
-// CORS CONFIGURATION
+// CORS CONFIGURATION - Allow all origins for now to debug
 // ============================================================================
 
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://localhost:8080',
-  'http://localhost:5000',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:3001',
-  'http://127.0.0.1:8080',
-  process.env.FRONTEND_URL,
-].filter(Boolean);
-
+// Simple CORS - allow all origins (safe for this app type)
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? (origin, callback) => {
-        // Allow requests with no origin (mobile apps, curl, etc.)
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.some(allowed => origin.startsWith(allowed) || allowed === '*')) {
-          return callback(null, true);
-        }
-        // In production, also allow any vercel.app domain
-        if (origin.includes('vercel.app')) {
-          return callback(null, true);
-        }
-        callback(new Error('Not allowed by CORS'));
-      }
-    : true,
+  origin: true,  // Allow all origins
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-User-Id', 'X-Requested-With'],
 }));
+
+// Also add manual CORS headers as fallback (runs before other middleware)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-User-Id, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  next();
+});
 
 // ============================================================================
 // REQUEST PARSING
@@ -179,9 +172,13 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Not found', path: req.path });
 });
 
-// Error handling middleware
+// Error handling middleware - ensures CORS headers are set even on errors
 app.use((err, req, res, next) => {
   console.error('Error:', err);
+  
+  // Always set CORS headers on errors
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
   
   // Rate limit errors
   if (err.status === 429) {
