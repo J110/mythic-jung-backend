@@ -2,6 +2,15 @@ import express from 'express';
 import { db } from '../storage/database.js';
 import { generateRelationshipOutput, clearRelationshipCache } from '../services/relationshipEngine.js';
 import { queueAIRequest, AI_PRIORITY } from '../services/aiQueue.js';
+import {
+  createJob,
+  updateJobProgress,
+  completeJob,
+  failJob,
+  getJob,
+  getLatestJobForUser,
+  JOB_STATUS,
+} from '../services/jobManager.js';
 
 export const relationshipRouter = express.Router();
 
@@ -91,7 +100,8 @@ relationshipRouter.get('/output', async (req, res, next) => {
 });
 
 // ============================================================================
-// POST /v1/relationship/regenerate - Generate/regenerate relationship output
+// POST /v1/relationship/regenerate - Start async relationship generation
+// Returns immediately with a jobId, processes in background
 // ============================================================================
 relationshipRouter.post('/regenerate', async (req, res, next) => {
   try {
@@ -128,45 +138,23 @@ relationshipRouter.post('/regenerate', async (req, res, next) => {
       console.log(`[Relationship] Force regeneration - caches cleared for user ${userId}`);
     }
 
-    console.log(`[Relationship] Generating output for user ${userId} (v2 engine)...`);
-
-    // NOTE: Relationship output is INDEPENDENT from Me output
-    const meData = {
-      profile: await db.getProfile(userId),
-      selfModel: null, // Intentionally null - relationship is independent
-      assessments: await db.getAssessmentAnswers(userId),
-    };
+    // Create a job for async tracking
+    const job = createJob(userId);
     
-    console.log(`[Relationship] Using independent mode (no Me output dependency)`);
-
-    // Get pre-recognized characters from resonance flow
-    const preRecognizedCharacters = relationshipSet.recognizedCharacters || [];
-    const referenceHints = relationshipSet.referenceHints || {};
+    console.log(`[Relationship] Starting async generation for job ${job.id}`);
     
-    console.log(`[Relationship] Pre-recognized characters: ${preRecognizedCharacters.length}`);
-    if (preRecognizedCharacters.length > 0) {
-      console.log(`[Relationship] Using pre-recognized: ${preRecognizedCharacters.map(c => c.canonical?.name || c.input).join(', ')}`);
-    }
-
-    // Generate relationship output (queued to prevent rate limits)
-    const output = await queueAIRequest(
-      () => generateRelationshipOutput(
-        relationshipSet,
-        meData,
-        { 
-          moduleKeys,
-          preRecognizedCharacters: preRecognizedCharacters.length >= 4 ? preRecognizedCharacters : null,
-          referenceHints,
-        }
-      ),
-      { priority: AI_PRIORITY.NORMAL }
-    );
-
-    // Cache the output
-    await db.saveRelationshipOutput(userId, output);
+    // Run generation in background (don't await)
+    runRelationshipGenerationInBackground(job.id, userId, relationshipSet, moduleKeys).catch(err => {
+      console.error(`[Relationship] Background generation failed for job ${job.id}:`, err);
+    });
     
-    console.log(`[Relationship] Output generated and cached for user ${userId}`);
-    res.json(output);
+    // Return immediately with job info
+    res.json({
+      jobId: job.id,
+      status: job.status,
+      message: 'Relationship generation started. Poll /v1/relationship/status/:jobId for progress.',
+    });
+    
   } catch (error) {
     console.error('[Relationship] Generation error:', error);
     
@@ -181,6 +169,151 @@ relationshipRouter.post('/regenerate', async (req, res, next) => {
     
     next(error);
   }
+});
+
+/**
+ * Run relationship generation in background with progress updates
+ */
+async function runRelationshipGenerationInBackground(jobId, userId, relationshipSet, moduleKeys) {
+  try {
+    updateJobProgress(jobId, 1, 'Preparing relationship analysis...');
+    
+    // NOTE: Relationship output is INDEPENDENT from Me output
+    const meData = {
+      profile: await db.getProfile(userId),
+      selfModel: null, // Intentionally null - relationship is independent
+      assessments: await db.getAssessmentAnswers(userId),
+    };
+    
+    console.log(`[Relationship] Job ${jobId}: Using independent mode (no Me output dependency)`);
+
+    // Get pre-recognized characters from resonance flow
+    const preRecognizedCharacters = relationshipSet.recognizedCharacters || [];
+    const referenceHints = relationshipSet.referenceHints || {};
+    
+    console.log(`[Relationship] Job ${jobId}: Pre-recognized characters: ${preRecognizedCharacters.length}`);
+    
+    updateJobProgress(jobId, 2, 'Recognizing partner characters...');
+
+    // Generate relationship output with progress callback
+    const output = await queueAIRequest(
+      () => generateRelationshipOutput(
+        relationshipSet,
+        meData,
+        { 
+          moduleKeys,
+          preRecognizedCharacters: preRecognizedCharacters.length >= 4 ? preRecognizedCharacters : null,
+          referenceHints,
+          onProgress: (step, label) => {
+            // Map relationship steps (starting from step 3)
+            const mappedStep = 2 + step; // Steps 3-6
+            updateJobProgress(jobId, Math.min(mappedStep, 6), label);
+          },
+        }
+      ),
+      { priority: AI_PRIORITY.NORMAL }
+    );
+
+    // Cache the output
+    await db.saveRelationshipOutput(userId, output);
+    console.log(`[Relationship] Job ${jobId}: Output generated and cached`);
+
+    // Mark job as complete
+    completeJob(jobId, output);
+    
+  } catch (error) {
+    console.error(`[Relationship] Job ${jobId} failed:`, error);
+    failJob(jobId, error);
+  }
+}
+
+// ============================================================================
+// GET /v1/relationship/status/:jobId - Get relationship job status and progress
+// ============================================================================
+relationshipRouter.get('/status/:jobId', async (req, res) => {
+  const { jobId } = req.params;
+  const job = getJob(jobId);
+  
+  if (!job) {
+    return res.status(404).json({
+      error: 'Job not found',
+      code: 'JOB_NOT_FOUND',
+    });
+  }
+  
+  // If completed, include the result
+  if (job.status === JOB_STATUS.COMPLETED && job.result) {
+    return res.json({
+      jobId: job.id,
+      status: job.status,
+      progress: job.progress,
+      currentStep: job.currentStep,
+      totalSteps: job.totalSteps,
+      stepLabel: job.stepLabel,
+      result: job.result,
+    });
+  }
+  
+  // If failed, include the error
+  if (job.status === JOB_STATUS.FAILED) {
+    return res.json({
+      jobId: job.id,
+      status: job.status,
+      progress: job.progress,
+      currentStep: job.currentStep,
+      totalSteps: job.totalSteps,
+      stepLabel: job.stepLabel,
+      error: job.error,
+    });
+  }
+  
+  // In progress
+  return res.json({
+    jobId: job.id,
+    status: job.status,
+    progress: job.progress,
+    currentStep: job.currentStep,
+    totalSteps: job.totalSteps,
+    stepLabel: job.stepLabel,
+  });
+});
+
+// ============================================================================
+// GET /v1/relationship/latest - Get latest relationship job for user
+// ============================================================================
+relationshipRouter.get('/latest', async (req, res) => {
+  const userId = getUserId(req);
+  const job = getLatestJobForUser(userId);
+  
+  if (!job) {
+    return res.status(404).json({
+      error: 'No jobs found for user',
+      code: 'NO_JOBS',
+    });
+  }
+  
+  // If completed, include the result
+  if (job.status === JOB_STATUS.COMPLETED && job.result) {
+    return res.json({
+      jobId: job.id,
+      status: job.status,
+      progress: job.progress,
+      currentStep: job.currentStep,
+      totalSteps: job.totalSteps,
+      stepLabel: job.stepLabel,
+      result: job.result,
+    });
+  }
+  
+  return res.json({
+    jobId: job.id,
+    status: job.status,
+    progress: job.progress,
+    currentStep: job.currentStep,
+    totalSteps: job.totalSteps,
+    stepLabel: job.stepLabel,
+    error: job.error,
+  });
 });
 
 // ============================================================================
