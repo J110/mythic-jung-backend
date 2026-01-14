@@ -196,8 +196,11 @@ export const db = {
           actions: output.actions || null,
           lifeDomains: output.lifeDomains || null,
           myth: output.myth || null,
-          identificationV2: output.identificationV2 || null,
+          identificationV2: output.identificationV2 || output.identification_v2 || null,
           constellation: output.constellation || null,
+          examples: output.examples || null,
+          characterProfiles: output.characterProfiles || null,
+          meta: output.meta || null,
         },
         create: {
           userId,
@@ -208,8 +211,11 @@ export const db = {
           actions: output.actions || null,
           lifeDomains: output.lifeDomains || null,
           myth: output.myth || null,
-          identificationV2: output.identificationV2 || null,
+          identificationV2: output.identificationV2 || output.identification_v2 || null,
           constellation: output.constellation || null,
+          examples: output.examples || null,
+          characterProfiles: output.characterProfiles || null,
+          meta: output.meta || null,
         },
       });
     } else {
@@ -233,6 +239,9 @@ export const db = {
         myth: output.myth,
         identificationV2: output.identificationV2,
         constellation: output.constellation,
+        examples: output.examples,
+        characterProfiles: output.characterProfiles,
+        meta: output.meta,
         cachedAt: output.generatedAt,
       };
     } else {

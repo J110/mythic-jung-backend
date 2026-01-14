@@ -70,8 +70,11 @@ model MeOutput {
   myth            Json?   // MythOutput
   
   // V2 fields
-  identificationV2 Json?
-  constellation    Json?
+  identificationV2    Json?
+  constellation       Json?
+  examples            Json?   // ExamplesOutput - character examples for each section
+  characterProfiles   Json?   // Array of character profile data for constellation
+  meta                Json?   // MetaOutput - prompt version, model version, etc.
   
   generatedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
