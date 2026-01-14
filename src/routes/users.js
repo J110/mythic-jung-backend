@@ -136,7 +136,13 @@ usersRouter.get('/:userId/sync', async (req, res) => {
     
     const user = await db.getUser(userId);
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      // User doesn't exist in database (likely migrated from in-memory to PostgreSQL)
+      // Return a special response so frontend knows to re-login
+      return res.status(404).json({ 
+        error: 'User not found',
+        code: 'USER_NOT_FOUND',
+        message: 'Your session has expired. Please login again.',
+      });
     }
     
     const meOutput = await db.getMeOutput(userId);
