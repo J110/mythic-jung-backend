@@ -165,7 +165,17 @@ CRITICAL RULES:
    - Sports: Virat Kohli, MS Dhoni, Sachin Tendulkar, Cristiano Ronaldo
    - Historical: Plato, Gandhi, Einstein, Abraham Lincoln, Alexander the Great
    
-   For these: recognized=true, confidence=0.90, medium="real-life" or "historical"
+   AUTHORS/PHILOSOPHERS/THINKERS (HIGH PRIORITY - 0.90+):
+   - James Carse (author of "Finite and Infinite Games") - philosopher and religious studies professor
+   - Jordan Peterson, Sam Harris, Naval Ravikant, Tim Ferriss
+   - Carl Jung, Sigmund Freud, Joseph Campbell, Friedrich Nietzsche
+   - Alan Watts, Ram Dass, Eckhart Tolle, Jiddu Krishnamurti
+   - Marcus Aurelius, Seneca, Epictetus (Stoics)
+   - Nassim Taleb (Black Swan), Malcolm Gladwell, Daniel Kahneman
+   - Brené Brown, Simon Sinek, Adam Grant
+   - When a BOOK reference is provided (e.g., "Finite and Infinite Games"), identify the AUTHOR
+   
+   For these: recognized=true, confidence=0.90, medium="real-life" or "author" or "philosopher"
 
 3. WHEN REFERENCE IS PROVIDED - TRUST IT:
    - "Rocky" + "KGF" → CHARACTER: "Rocky" from KGF, confidence=0.95
@@ -209,14 +219,23 @@ Return valid JSON:
     const response = await client.chat.completions.create({
       model: process.env.OPENAI_RECOGNITION_MODEL || 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: `You are a recognition AI specializing in GLOBAL cinema and public figures.
+        { role: 'system', content: `You are a recognition AI specializing in GLOBAL cinema, public figures, authors, and philosophers.
 
 YOUR CAPABILITIES:
 - You know fictional characters from GLOBAL cinema: Hollywood, Bollywood, Tollywood, Kollywood, Kannada, Korean, Japanese
 - You know famous real-life public figures (politicians, celebrities, business leaders, athletes)
 - You know historical figures (philosophers, leaders, scientists, artists)
+- You know AUTHORS, PHILOSOPHERS, and THOUGHT LEADERS by name AND their books
 - You can map actor names to characters when a movie/show reference is provided
 - You TRUST user-provided references and recognize characters from regional cinema
+
+AUTHORS & PHILOSOPHERS (HIGH PRIORITY - Recognize with 0.90+ confidence):
+- James Carse (author of "Finite and Infinite Games")
+- Jordan Peterson, Sam Harris, Naval Ravikant, Tim Ferriss
+- Carl Jung, Sigmund Freud, Joseph Campbell, Friedrich Nietzsche, Marcus Aurelius
+- Alan Watts, Ram Dass, Eckhart Tolle, Jiddu Krishnamurti
+- Nassim Taleb, Malcolm Gladwell, Daniel Kahneman, Brené Brown
+- When a BOOK is mentioned as reference, identify the AUTHOR of that book
 
 INDIAN CINEMA (HIGH PRIORITY - These are massively popular):
 - Rocky (KGF series) - Kannada film by Yash
@@ -224,7 +243,7 @@ INDIAN CINEMA (HIGH PRIORITY - These are massively popular):
 - Pushpa Raj (Pushpa series) - Telugu film by Allu Arjun
 - Kabir Singh, Baahubali, Don, Simran, Geet, Bheem, Ram (RRR)
 
-When a reference is provided (like "KGF" or "Toxic"), TRUST IT and recognize with high confidence.
+When a reference is provided (like "KGF" or "Toxic" or a book title), TRUST IT and recognize with high confidence.
 
 FICTIONAL CHARACTERS YOU MUST RECOGNIZE (confidence 0.85+):
 Film: Jack Reacher, James Bond, Trinity (Matrix), Patch Adams, Allie Hamilton
