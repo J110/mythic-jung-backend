@@ -128,7 +128,7 @@ async function recognizeCharactersBatch(inputs, referenceHints = {}) {
       return `${i+1}. Input: "${name}"`;
     });
     
-    // Enhanced prompt - AI-only recognition with global cinema support
+    // Enhanced prompt - AI-only recognition with GLOBAL cinema support
     const prompt = `You are recognizing ${inputs.length} inputs. Return ONE result for EACH input, in the SAME ORDER.
 
 INPUTS:
@@ -136,59 +136,56 @@ ${inputsWithRefs.join('\n')}
 
 CRITICAL RULES:
 
-1. RECOGNIZE FAMOUS FICTIONAL CHARACTERS with HIGH CONFIDENCE (0.85+):
+1. RECOGNIZE FICTIONAL CHARACTERS FROM GLOBAL CINEMA (0.85+):
    
    HOLLYWOOD/WESTERN:
    - Jack Reacher, James Bond, Sherlock Holmes, Batman, Spider-Man, Superman
-   - Gregory House (House M.D.), Rick Sanchez (Rick and Morty), Don Draper (Mad Men)
-   - Walter White (Breaking Bad), Tony Soprano (The Sopranos)
-   - Trinity (The Matrix), Bobby Axelrod (Billions), Forrest Gump
+   - Walter White (Breaking Bad), Tony Soprano, Don Draper, Gregory House
+   - Trinity (Matrix), Bobby Axelrod (Billions), Forrest Gump
    
-   INDIAN CINEMA (Bollywood, Tollywood, Kollywood, Kannada, etc.):
-   - Rocky (KGF: Chapter 1 & 2) - Kannada action film hero played by Yash
+   INDIAN CINEMA (Bollywood, Tollywood, Kollywood, Kannada) - HIGH PRIORITY:
+   - Rocky (KGF: Chapter 1 & 2) - Kannada action hero played by Yash
    - Raya/Arjun (Toxic 2025) - Kannada film character played by Yash
+   - Pushpa Raj (Pushpa series) - Telugu character by Allu Arjun
    - Kabir Singh (Kabir Singh) - Hindi film
-   - Pushpa Raj (Pushpa: The Rise) - Telugu film character played by Allu Arjun
-   - Rancho/Phunsukh Wangdu (3 Idiots) - character played by Aamir Khan
-   - Gabbar Singh (Sholay) - Classic villain
    - Baahubali/Amarendra (Baahubali series) - Telugu epic
-   - Don (Don series) - SRK's character
-   - Simran (DDLJ), Geet (Jab We Met), Rani (Queen)
+   - Rancho (3 Idiots), Gabbar Singh (Sholay)
+   - Don (Don series), Simran (DDLJ), Geet (Jab We Met), Rani (Queen)
    - Bheem, Ram (RRR) - Telugu epic characters
    - Arjun Reddy (Arjun Reddy) - Telugu film
    
    KOREAN/ASIAN:
    - Park Sae-ro-yi (Itaewon Class), Cho Sang-woo (Squid Game)
-   - Kang Sae-byeok (Squid Game)
    
-   ANIME:
-   - Goku, Naruto, Luffy, Light Yagami, Eren Yeager
-   
-2. RECOGNIZE REAL-LIFE PUBLIC FIGURES with HIGH CONFIDENCE (0.90+):
-   - Politicians: Donald Trump, Narendra Modi, Barack Obama
-   - Business: Elon Musk, Mukesh Ambani, Ratan Tata
-   - Sports: Virat Kohli, MS Dhoni, Sachin Tendulkar, Lionel Messi
-   - Historical: Plato, Gandhi, Einstein, Abraham Lincoln
+   ANIME: Goku, Naruto, Luffy, Light Yagami, Eren Yeager
+
+2. RECOGNIZE REAL-LIFE PUBLIC FIGURES (0.90+):
+   - Politicians: Donald Trump, Narendra Modi, Barack Obama, Vladimir Putin
+   - Business: Elon Musk, Mukesh Ambani, Ratan Tata, Jeff Bezos
+   - Sports: Virat Kohli, MS Dhoni, Sachin Tendulkar, Cristiano Ronaldo
+   - Historical: Plato, Gandhi, Einstein, Abraham Lincoln, Alexander the Great
    
    For these: recognized=true, confidence=0.90, medium="real-life" or "historical"
-   
-3. WHEN REFERENCE IS PROVIDED - BE GENEROUS:
+
+3. WHEN REFERENCE IS PROVIDED - TRUST IT:
    - "Rocky" + "KGF" → CHARACTER: "Rocky" from KGF, confidence=0.95
-   - "Raya" + "Toxic" → CHARACTER: "Raya" from Toxic (2025 Kannada film), confidence=0.90
+   - "Raya" + "Toxic" → CHARACTER: "Raya" from Toxic (2025), confidence=0.90
    - "Pushpa" + "Pushpa" → CHARACTER: "Pushpa Raj", confidence=0.95
-   - TRUST the reference! If user says "from KGF" or "from Toxic", believe them
-   
+   - If user provides a reference, BELIEVE them and recognize with high confidence
+
 4. ACTOR NAMES with Reference → Return CHARACTER:
    - "Yash" + "KGF" → CHARACTER: "Rocky" (inputWasActor=true)
    - "Allu Arjun" + "Pushpa" → CHARACTER: "Pushpa Raj" (inputWasActor=true)
    - "Zooey Deschanel" + "Yes Man" → CHARACTER: "Allison" (inputWasActor=true)
 
-5. REGIONAL CINEMA - HIGH PRIORITY:
-   - Indian cinema (Hindi, Telugu, Tamil, Kannada, Malayalam) is MASSIVELY popular
-   - When reference matches regional cinema title, set confidence=0.85-0.95
-   - Never reject regional cinema characters just because they're not Hollywood
+5. REGIONAL CINEMA - BE GENEROUS:
+   Indian cinema is MASSIVELY popular. When reference matches regional titles (KGF, Toxic, Pushpa, RRR, Baahubali), recognize with confidence 0.85-0.95.
 
-6. RETURN COMPLETE ARRAY:
+6. UNCERTAIN without reference:
+   If confidence < 0.7 AND no reference provided:
+   - needsClarification=true, clarificationReason="low_confidence"
+
+7. RETURN COMPLETE ARRAY:
    You MUST return ${inputs.length} results, one for each input, in the SAME ORDER.
 
 Return valid JSON:
@@ -209,42 +206,38 @@ Return valid JSON:
   ]
 }`;
 
-
     const response = await client.chat.completions.create({
       model: process.env.OPENAI_RECOGNITION_MODEL || 'gpt-4o-mini',
       messages: [
         { role: 'system', content: `You are a recognition AI specializing in GLOBAL cinema and public figures.
 
 YOUR CAPABILITIES:
-- You know fictional characters from GLOBAL cinema including Hollywood, Bollywood, Tollywood, Kollywood, Kannada, Korean, Japanese
+- You know fictional characters from GLOBAL cinema: Hollywood, Bollywood, Tollywood, Kollywood, Kannada, Korean, Japanese
 - You know famous real-life public figures (politicians, celebrities, business leaders, athletes)
 - You know historical figures (philosophers, leaders, scientists, artists)
 - You can map actor names to characters when a movie/show reference is provided
 - You TRUST user-provided references and recognize characters from regional cinema
 
-FICTIONAL CHARACTERS - GLOBAL CINEMA (confidence 0.85+):
-
-HOLLYWOOD: Jack Reacher, James Bond, Trinity (Matrix), Walter White, Tony Soprano, Batman
-
 INDIAN CINEMA (HIGH PRIORITY - These are massively popular):
-- Rocky (KGF series) - Kannada film protagonist by Yash
+- Rocky (KGF series) - Kannada film by Yash
 - Raya/Arjun (Toxic 2025) - Kannada film by Yash  
 - Pushpa Raj (Pushpa series) - Telugu film by Allu Arjun
-- Kabir Singh (Kabir Singh) - Hindi film
-- Baahubali (Baahubali series) - Telugu epic
-- Don (Don series), Simran (DDLJ), Geet (Jab We Met)
-- Bheem, Ram (RRR) - Telugu epic
+- Kabir Singh, Baahubali, Don, Simran, Geet, Bheem, Ram (RRR)
 
-KOREAN: Park Sae-ro-yi, Cho Sang-woo (Squid Game)
-ANIME: Goku, Naruto, Luffy
+When a reference is provided (like "KGF" or "Toxic"), TRUST IT and recognize with high confidence.
 
-REAL-LIFE PUBLIC FIGURES (confidence 0.90+):
-- Politicians: Donald Trump, Narendra Modi, Barack Obama
-- Business: Elon Musk, Mukesh Ambani, Ratan Tata
-- Sports: Virat Kohli, MS Dhoni, Cristiano Ronaldo
-- Historical: Plato, Gandhi, Einstein
+FICTIONAL CHARACTERS YOU MUST RECOGNIZE (confidence 0.85+):
+Film: Jack Reacher, James Bond, Trinity (Matrix), Patch Adams, Allie Hamilton
+TV: Gregory House, Rick Sanchez, Don Draper, Lara Axelrod, Bobby Axelrod, Walter White, Tony Soprano
+Comics: Batman, Spider-Man, Superman, Joker
 
-IMPORTANT: When a reference is provided (like "KGF" or "Toxic"), TRUST IT and recognize the character with high confidence.
+REAL-LIFE PUBLIC FIGURES YOU MUST RECOGNIZE (confidence 0.90+):
+Politicians: Donald Trump, Barack Obama, Joe Biden, Vladimir Putin, Xi Jinping, Narendra Modi
+Business: Elon Musk, Jeff Bezos, Bill Gates, Steve Jobs, Mark Zuckerberg
+Entertainment: Oprah Winfrey, Taylor Swift, Beyoncé, Kim Kardashian
+Sports: Michael Jordan, LeBron James, Cristiano Ronaldo, Serena Williams
+
+For real-life figures, use: medium="real-life", franchise="Public Figure"
 
 HISTORICAL FIGURES YOU MUST RECOGNIZE (confidence 0.90+):
 Philosophers: Plato, Aristotle, Socrates, Confucius, Nietzsche, Kant

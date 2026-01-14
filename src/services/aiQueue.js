@@ -13,11 +13,11 @@ const AI_QUEUE_CONFIG = {
   intervalCap: 50,
   interval: 60 * 1000, // 1 minute
   
-  // Timeout per request (AI calls can take a while)
-  timeout: 120 * 1000, // 2 minutes
+  // Timeout per request - increased to 5 minutes for complex generation
+  timeout: 300 * 1000, // 5 minutes
   
-  // Whether to throw on timeout
-  throwOnTimeout: true,
+  // Don't throw on timeout - let individual calls handle errors gracefully
+  throwOnTimeout: false,
 };
 
 // Create the queue
@@ -77,11 +77,20 @@ export async function queueAIRequest(aiFunction, options = {}) {
       priority,
       signal,
     });
+    
+    // If result is undefined due to timeout (throwOnTimeout: false), handle it
+    if (result === undefined) {
+      stats.timedOutRequests++;
+      console.error('[AIQueue] Request may have timed out (returned undefined)');
+      throw new Error('AI request timed out. Please try again.');
+    }
+    
     return result;
   } catch (error) {
     if (error.name === 'TimeoutError') {
       stats.timedOutRequests++;
-      console.error('[AIQueue] Request timed out');
+      console.error('[AIQueue] Request timed out:', error.message);
+      throw new Error('AI request timed out. The server is busy, please try again in a moment.');
     }
     throw error;
   }
