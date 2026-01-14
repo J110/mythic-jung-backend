@@ -26,7 +26,9 @@ profileRouter.post('/', async (req, res, next) => {
     await db.saveProfile(userId, profile);
     
     // Invalidate cached output when characters change
+    console.log(`[Profile] Clearing cached output for user ${userId} (characters changed)`);
     await db.clearMeOutput(userId);
+    console.log(`[Profile] Cache cleared for user ${userId}`);
 
     console.log(`Profile updated for user ${userId} with ${characters.length} characters`);
     res.json({ success: true, profile });
