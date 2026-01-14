@@ -174,12 +174,26 @@ usersRouter.get('/:userId/sync', async (req, res) => {
     console.log(`[Users] Sync requested for user: ${user.username} (${userId})`);
     console.log(`[Users] Has meOutput: ${!!meOutput?.story}, Has relationshipOutput: ${!!relationshipOutput?.myth}`);
     
+    // Debug: Log meOutput structure to identify parsing issues
+    if (meOutput) {
+      console.log(`[Users] meOutput keys: ${Object.keys(meOutput).join(', ')}`);
+      console.log(`[Users] meOutput.story type: ${typeof meOutput.story}, isNull: ${meOutput.story === null}`);
+      console.log(`[Users] meOutput.identification type: ${typeof meOutput.identification}, isNull: ${meOutput.identification === null}`);
+      console.log(`[Users] meOutput.functioning type: ${typeof meOutput.functioning}, isNull: ${meOutput.functioning === null}`);
+      console.log(`[Users] meOutput.actions type: ${typeof meOutput.actions}, isNull: ${meOutput.actions === null}`);
+      console.log(`[Users] meOutput.lifeDomains type: ${typeof meOutput.lifeDomains}, isNull: ${meOutput.lifeDomains === null}`);
+      console.log(`[Users] meOutput.meta type: ${typeof meOutput.meta}, isNull: ${meOutput.meta === null}`);
+    }
+    
+    // Ensure displayName is never null
+    const safeUser = {
+      id: user.id,
+      username: user.username,
+      displayName: user.displayName || user.username,
+    };
+    
     res.json({
-      user: {
-        id: user.id,
-        username: user.username,
-        displayName: user.displayName,
-      },
+      user: safeUser,
       meOutput: meOutput || null,
       relationshipOutput: relationshipOutput || null,
       relationshipSettings: relationshipSet ? {
