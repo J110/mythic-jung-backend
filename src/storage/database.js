@@ -301,18 +301,37 @@ export const db = {
     if (useDatabase) {
       await this.ensureUser(userId);
       
+      console.log(`[Database] Saving relationship set for user ${userId}:`, {
+        enabled: relationshipSet.enabled,
+        relationshipType: relationshipSet.relationshipType,
+        otherCharacterInputs: relationshipSet.otherCharacterInputs?.length,
+        recognizedCharacters: relationshipSet.recognizedCharacters?.length,
+      });
+      
       return prisma.relationshipSet.upsert({
         where: { userId },
         update: {
-          partnerName: relationshipSet.partnerName || null,
-          partnerCharacters: relationshipSet.partnerCharacters || null,
+          enabled: relationshipSet.enabled ?? false,
+          relationshipType: relationshipSet.relationshipType || null,
+          otherLabel: relationshipSet.otherLabel || null,
+          otherCharacterInputs: relationshipSet.otherCharacterInputs || null,
           recognizedCharacters: relationshipSet.recognizedCharacters || null,
+          referenceHints: relationshipSet.referenceHints || null,
+          // Legacy fields
+          partnerName: relationshipSet.partnerName || null,
+          partnerCharacters: relationshipSet.partnerCharacters || relationshipSet.otherCharacterInputs || null,
         },
         create: {
           userId,
-          partnerName: relationshipSet.partnerName || null,
-          partnerCharacters: relationshipSet.partnerCharacters || null,
+          enabled: relationshipSet.enabled ?? false,
+          relationshipType: relationshipSet.relationshipType || null,
+          otherLabel: relationshipSet.otherLabel || null,
+          otherCharacterInputs: relationshipSet.otherCharacterInputs || null,
           recognizedCharacters: relationshipSet.recognizedCharacters || null,
+          referenceHints: relationshipSet.referenceHints || null,
+          // Legacy fields
+          partnerName: relationshipSet.partnerName || null,
+          partnerCharacters: relationshipSet.partnerCharacters || relationshipSet.otherCharacterInputs || null,
         },
       });
     } else {
@@ -324,12 +343,26 @@ export const db = {
   async getRelationshipSet(userId) {
     if (useDatabase) {
       const rs = await prisma.relationshipSet.findUnique({ where: { userId } });
-      return rs ? {
+      if (!rs) return null;
+      
+      console.log(`[Database] Retrieved relationship set for user ${userId}:`, {
+        enabled: rs.enabled,
+        relationshipType: rs.relationshipType,
+        otherCharacterInputs: rs.otherCharacterInputs?.length,
+      });
+      
+      return {
+        enabled: rs.enabled,
+        relationshipType: rs.relationshipType,
+        otherLabel: rs.otherLabel,
+        otherCharacterInputs: rs.otherCharacterInputs,
+        recognizedCharacters: rs.recognizedCharacters,
+        referenceHints: rs.referenceHints,
+        // Legacy fields for backward compatibility
         partnerName: rs.partnerName,
         partnerCharacters: rs.partnerCharacters,
-        recognizedCharacters: rs.recognizedCharacters,
         updatedAt: rs.updatedAt,
-      } : null;
+      };
     } else {
       return memoryStore.getRelationshipSet(userId);
     }

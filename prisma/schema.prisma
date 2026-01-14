@@ -121,9 +121,19 @@ model RelationshipSet {
   userId    String   @unique
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
+  // Core relationship settings
+  enabled              Boolean  @default(false)
+  relationshipType     String?  // 'romantic', 'platonic', etc.
+  otherLabel           String?  // 'partner', 'friend', etc.
+  
+  // Character data
+  otherCharacterInputs Json?    // Array of other person's character names
+  recognizedCharacters Json?    // Recognition results (pre-recognized from resonance)
+  referenceHints       Json?    // Reference hints for recognition
+  
+  // Legacy fields (kept for compatibility)
   partnerName          String?
   partnerCharacters    Json?    // Array of partner character names
-  recognizedCharacters Json?    // Recognition results
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
