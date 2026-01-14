@@ -55,11 +55,17 @@ export const db = {
   
   async saveUser(user) {
     if (useDatabase) {
-      return prisma.user.upsert({
+      // Only save id and username to DB (displayName is derived from username)
+      const savedUser = await prisma.user.upsert({
         where: { id: user.id },
         update: { username: user.username },
         create: { id: user.id, username: user.username },
       });
+      // Return with displayName derived from original input or username
+      return {
+        ...savedUser,
+        displayName: user.displayName || savedUser.username,
+      };
     } else {
       memoryStore.saveUser(user);
       return user;
@@ -68,7 +74,12 @@ export const db = {
 
   async getUser(userId) {
     if (useDatabase) {
-      return prisma.user.findUnique({ where: { id: userId } });
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (user) {
+        // Ensure displayName is always present (fallback to username)
+        user.displayName = user.displayName || user.username;
+      }
+      return user;
     } else {
       return memoryStore.getUser(userId);
     }
@@ -76,7 +87,12 @@ export const db = {
 
   async getUserByUsername(username) {
     if (useDatabase) {
-      return prisma.user.findUnique({ where: { username: username.toLowerCase() } });
+      const user = await prisma.user.findUnique({ where: { username: username.toLowerCase() } });
+      if (user) {
+        // Ensure displayName is always present (fallback to username)
+        user.displayName = user.displayName || user.username;
+      }
+      return user;
     } else {
       return memoryStore.getUserByUsername(username);
     }

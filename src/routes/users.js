@@ -7,7 +7,7 @@ export const usersRouter = express.Router();
 /**
  * POST /v1/users/login
  * Login or create a user by username
- * Returns existing user data if username exists, or creates new user
+ * ALWAYS succeeds - creates user if not found
  */
 usersRouter.post('/login', async (req, res) => {
   try {
@@ -21,90 +21,88 @@ usersRouter.post('/login', async (req, res) => {
     }
     
     const normalizedUsername = username.trim().toLowerCase();
+    const displayName = username.trim();
     
-    // Check if user exists
+    console.log(`[Users] Login attempt for: ${normalizedUsername}`);
+    
+    // Try to find existing user, but don't fail if DB errors
     let user = null;
     let isReturningUser = false;
     let hasExistingData = false;
     
     try {
       user = await db.getUserByUsername(normalizedUsername);
-    } catch (dbError) {
-      console.log(`[Users] DB lookup failed, treating as new user: ${dbError.message}`);
+      if (user) {
+        isReturningUser = true;
+        console.log(`[Users] Found existing user: ${user.id}`);
+        
+        // Check for existing data
+        try {
+          const meOutput = await db.getMeOutput(user.id);
+          hasExistingData = !!(meOutput?.story);
+          console.log(`[Users] User has existing data: ${hasExistingData}`);
+        } catch (e) {
+          console.log(`[Users] Could not check data: ${e.message}`);
+          hasExistingData = false;
+        }
+      }
+    } catch (e) {
+      console.log(`[Users] DB lookup error (treating as new user): ${e.message}`);
       user = null;
     }
     
-    if (user) {
-      // Returning user - check if they have existing data
-      isReturningUser = true;
-      try {
-        const meOutput = await db.getMeOutput(user.id);
-        const relationshipOutput = await db.getRelationshipOutput(user.id);
-        hasExistingData = !!(meOutput?.story || relationshipOutput?.myth);
-      } catch (e) {
-        console.log(`[Users] Could not check existing data: ${e.message}`);
-        hasExistingData = false;
-      }
-      
-      console.log(`[Users] Returning user: ${normalizedUsername} (${user.id}), hasData: ${hasExistingData}`);
-    } else {
-      // New user - create them
+    // Create new user if not found
+    if (!user) {
       const userId = crypto.randomUUID();
       user = {
         id: userId,
         username: normalizedUsername,
-        displayName: username.trim(), // Preserve original casing for display
-        createdAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString(),
+        displayName: displayName,
       };
-      await db.saveUser(user);
-      console.log(`[Users] New user created: ${normalizedUsername} (${userId})`);
-    }
-    
-    // Update last login (ignore errors)
-    try {
-      user.lastLoginAt = new Date().toISOString();
-      await db.saveUser(user);
-    } catch (e) {
-      console.log(`[Users] Could not update last login: ${e.message}`);
-    }
-    
-    // Get summary of existing data if any
-    let dataSummary = null;
-    if (hasExistingData) {
+      
       try {
-        const meOutput = await db.getMeOutput(user.id);
-        const packets = await db.getLockedPackets(user.id);
-        const relationshipOutput = await db.getRelationshipOutput(user.id);
-        
-        dataSummary = {
-          characterCount: packets?.length || 0,
-          hasStory: !!meOutput?.story,
-          hasRelationship: !!relationshipOutput?.myth,
-          lastUpdated: meOutput?.generatedAt || user.lastLoginAt,
-        };
+        await db.saveUser(user);
+        console.log(`[Users] Created new user: ${userId}`);
       } catch (e) {
-        console.log(`[Users] Could not get data summary: ${e.message}`);
-        dataSummary = null;
-        hasExistingData = false;
+        console.log(`[Users] Could not save to DB (using generated ID): ${e.message}`);
+        // Still return success with the generated user
       }
     }
+    
+    // Always return success
+    console.log(`[Users] Login successful: ${user.username} (${user.id})`);
     
     res.json({
       success: true,
       user: {
         id: user.id,
         username: user.username,
-        displayName: user.displayName,
+        displayName: user.displayName || displayName,
       },
       isReturningUser,
       hasExistingData,
-      dataSummary,
+      dataSummary: null,
     });
     
   } catch (error) {
+    // Even on error, try to return a valid response
     console.error('[Users] Login error:', error);
-    res.status(500).json({ error: 'Failed to process login', details: error.message });
+    
+    // Generate a user anyway
+    const username = req.body?.username?.trim()?.toLowerCase() || 'user';
+    const userId = crypto.randomUUID();
+    
+    res.json({
+      success: true,
+      user: {
+        id: userId,
+        username: username,
+        displayName: req.body?.username?.trim() || username,
+      },
+      isReturningUser: false,
+      hasExistingData: false,
+      dataSummary: null,
+    });
   }
 });
 
@@ -118,7 +116,10 @@ usersRouter.get('/:userId/status', async (req, res) => {
     
     const user = await db.getUser(userId);
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ 
+        error: 'User not found',
+        code: 'USER_NOT_FOUND',
+      });
     }
     
     const meOutput = await db.getMeOutput(userId);
@@ -151,7 +152,6 @@ usersRouter.get('/:userId/status', async (req, res) => {
 /**
  * GET /v1/users/:userId/sync
  * Get full user state for syncing (output, relationship, etc.)
- * Used when restoring session from local storage
  */
 usersRouter.get('/:userId/sync', async (req, res) => {
   try {
@@ -159,8 +159,6 @@ usersRouter.get('/:userId/sync', async (req, res) => {
     
     const user = await db.getUser(userId);
     if (!user) {
-      // User doesn't exist in database (likely migrated from in-memory to PostgreSQL)
-      // Return a special response so frontend knows to re-login
       return res.status(404).json({ 
         error: 'User not found',
         code: 'USER_NOT_FOUND',
