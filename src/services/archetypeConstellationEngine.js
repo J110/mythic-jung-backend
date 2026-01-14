@@ -199,6 +199,8 @@ function extractSelfDirectionVector(selfModel, profiles) {
  *   baseMotifWeight(c,m) * phaseMultiplier(c) * resonanceMultiplier(c) * assessmentMultiplier(c)
  */
 function computeMotifScores(profiles, resonanceData, assessmentAnswers, selfModel) {
+  console.log('[ConstellationEngine] Computing motif scores for', profiles?.length || 0, 'profiles');
+  
   // Initialize all motif scores to 0
   const scores = {};
   MOTIF_ARCHETYPES.forEach(motif => {
@@ -211,6 +213,11 @@ function computeMotifScores(profiles, resonanceData, assessmentAnswers, selfMode
     
     // Get base motif weights from profile (or compute from traits)
     const baseMotifs = getBaseMotifWeights(profile);
+    const nonZeroMotifs = Object.entries(baseMotifs).filter(([_, w]) => w > 0);
+    console.log(`[ConstellationEngine] ${charName}: ${nonZeroMotifs.length} non-zero motifs`);
+    if (nonZeroMotifs.length > 0) {
+      console.log(`[ConstellationEngine]   Top motifs: ${nonZeroMotifs.slice(0, 3).map(([m, w]) => `${m}(${w})`).join(', ')}`);
+    }
     
     // Get multipliers
     const phaseMultiplier = computePhaseMultiplier(profile, resonanceData);
@@ -242,12 +249,15 @@ function computeMotifScores(profiles, resonanceData, assessmentAnswers, selfMode
  * Uses profile.motifs if available, otherwise computes from traits
  */
 function getBaseMotifWeights(profile) {
+  const charName = profile.name || profile.canonicalName || 'unknown';
+  
   // If profile already has motif weights, use them
-  if (profile.motifs && Array.isArray(profile.motifs)) {
+  if (profile.motifs && Array.isArray(profile.motifs) && profile.motifs.length > 0) {
     const weights = {};
     profile.motifs.forEach(m => {
       weights[m.motif] = m.weight;
     });
+    console.log(`[getBaseMotifWeights] ${charName}: Using profile.motifs (${profile.motifs.length} motifs)`);
     return weights;
   }
   
@@ -259,26 +269,32 @@ function getBaseMotifWeights(profile) {
   
   // Extract traits from profile
   const allTraits = extractAllTraits(profile);
+  console.log(`[getBaseMotifWeights] ${charName}: Extracted ${allTraits.length} traits:`, allTraits.slice(0, 5));
   
   // Map traits to motifs
+  let traitMatches = 0;
   allTraits.forEach(trait => {
     const traitLower = trait.toLowerCase().trim();
     const mapping = TRAIT_TO_MOTIF_MAP[traitLower];
     if (mapping) {
       weights[mapping.motif] = Math.max(weights[mapping.motif] || 0, mapping.weight);
+      traitMatches++;
     }
   });
   
   // Also check archetype signals
   const archetypes = profile.archetypeSignals?.primaryArchetypes || [];
+  console.log(`[getBaseMotifWeights] ${charName}: archetypeSignals.primaryArchetypes:`, archetypes);
   archetypes.forEach(arch => {
     const archLower = arch.toLowerCase().trim();
     const mapping = TRAIT_TO_MOTIF_MAP[archLower];
     if (mapping) {
       weights[mapping.motif] = Math.max(weights[mapping.motif] || 0, mapping.weight);
+      traitMatches++;
     }
   });
   
+  console.log(`[getBaseMotifWeights] ${charName}: ${traitMatches} trait matches`);
   return weights;
 }
 
