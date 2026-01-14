@@ -6,7 +6,8 @@
 
 import express from 'express';
 import crypto from 'crypto';
-import { memoryStore } from '../storage/memoryStore.js';
+import { db } from '../storage/database.js';
+import { queueAIRequest, AI_PRIORITY } from '../services/aiQueue.js';
 import {
   NarrativeTone,
   DEFAULT_TONE,
@@ -47,9 +48,9 @@ toneRouter.get('/available', (req, res) => {
  * 
  * Get user's current tone preference
  */
-toneRouter.get('/preference', (req, res) => {
+toneRouter.get('/preference', async (req, res) => {
   const userId = getUserId(req);
-  const preferences = memoryStore.getUserPreferences(userId);
+  const preferences = await db.getUserPreferences(userId);
   
   res.json({
     narrativeTone: preferences.narrativeTone || DEFAULT_TONE,
@@ -62,7 +63,7 @@ toneRouter.get('/preference', (req, res) => {
  * 
  * Set user's tone preference
  */
-toneRouter.post('/preference', (req, res) => {
+toneRouter.post('/preference', async (req, res) => {
   const userId = getUserId(req);
   const { narrativeTone } = req.body;
 
@@ -80,7 +81,7 @@ toneRouter.post('/preference', (req, res) => {
     });
   }
 
-  memoryStore.setNarrativeTone(userId, narrativeTone);
+  await db.setTonePreference(userId, narrativeTone);
   
   console.log(`[Tone] User ${userId} set tone to ${narrativeTone}`);
 
@@ -103,7 +104,7 @@ toneRouter.post('/render/me', async (req, res, next) => {
     const { tone, section, force } = req.body;
     
     // Get tone (from request, or user preference, or default)
-    const requestedTone = tone || memoryStore.getNarrativeTone(userId);
+    const requestedTone = tone || await db.getTonePreference(userId);
     
     console.log(`[Tone] Render Me request: tone=${requestedTone}, section=${section}, force=${force}`);
     
@@ -115,7 +116,7 @@ toneRouter.post('/render/me', async (req, res, next) => {
     }
 
     // Get canonical output
-    const output = memoryStore.getOutput(userId);
+    const output = await db.getMeOutput(userId);
     if (!output) {
       return res.status(404).json({
         error: 'No output found. Generate output first.',
@@ -128,7 +129,7 @@ toneRouter.post('/render/me', async (req, res, next) => {
 
     // Check cache (skip if force=true)
     if (!force) {
-      const cached = memoryStore.getToneCache(cacheKey);
+      const cached = await db.getToneCache(cacheKey);
       if (cached) {
         console.log(`[Tone] Cache hit for ${cacheKey}`);
         return res.json({
@@ -145,16 +146,22 @@ toneRouter.post('/render/me', async (req, res, next) => {
     // Extract canonical narrative
     const canonical = extractCanonicalNarrative(output, 'ME');
 
-    // Render
+    // Render (queued to prevent rate limits)
     let rendered;
     if (section) {
-      rendered = await renderSection(canonical, requestedTone, 'ME', section);
+      rendered = await queueAIRequest(
+        () => renderSection(canonical, requestedTone, 'ME', section),
+        { priority: AI_PRIORITY.NORMAL }
+      );
     } else {
-      rendered = await renderFullOutput(canonical, requestedTone, 'ME');
+      rendered = await queueAIRequest(
+        () => renderFullOutput(canonical, requestedTone, 'ME'),
+        { priority: AI_PRIORITY.NORMAL }
+      );
     }
 
     // Cache result (even if force was true, cache the new result)
-    memoryStore.saveToneCache(cacheKey, rendered);
+    await db.saveToneCache(cacheKey, userId, requestedTone, 'me', rendered);
 
     console.log(`[Tone] Rendered Me output in ${requestedTone} tone${section ? ` (section: ${section})` : ''} (fresh render)`);
 
@@ -181,14 +188,14 @@ toneRouter.post('/render/relationship', async (req, res, next) => {
     const { tone, section, force } = req.body;
     
     // Get tone (default to MYTHIC for relationships if no preference)
-    let requestedTone = tone || memoryStore.getNarrativeTone(userId);
+    let requestedTone = tone || await db.getTonePreference(userId);
     
     console.log(`[Tone] Render Relationship request: tone=${requestedTone}, section=${section}, force=${force}`);
     
     // Romantic relationships default to MYTHIC unless user has explicit preference
-    const relationshipSet = memoryStore.getRelationshipSet(userId);
+    const relationshipSet = await db.getRelationshipSet(userId);
     if (relationshipSet?.relationshipType === 'romantic' && !tone) {
-      const userPrefs = memoryStore.getUserPreferences(userId);
+      const userPrefs = await db.getUserPreferences(userId);
       if (!userPrefs.narrativeTone) {
         requestedTone = NarrativeTone.MYTHIC;
       }
@@ -202,7 +209,7 @@ toneRouter.post('/render/relationship', async (req, res, next) => {
     }
 
     // Get canonical output
-    const output = memoryStore.getRelationshipOutput(userId);
+    const output = await db.getRelationshipOutput(userId);
     if (!output) {
       return res.status(404).json({
         error: 'No relationship output found. Generate relationship analysis first.',
@@ -215,7 +222,7 @@ toneRouter.post('/render/relationship', async (req, res, next) => {
 
     // Check cache (skip if force=true)
     if (!force) {
-      const cached = memoryStore.getToneCache(cacheKey);
+      const cached = await db.getToneCache(cacheKey);
       if (cached) {
         console.log(`[Tone] Cache hit for ${cacheKey}`);
         return res.json({
@@ -232,16 +239,22 @@ toneRouter.post('/render/relationship', async (req, res, next) => {
     // Extract canonical narrative
     const canonical = extractCanonicalNarrative(output, 'RELATIONSHIP');
 
-    // Render
+    // Render (queued to prevent rate limits)
     let rendered;
     if (section) {
-      rendered = await renderSection(canonical, requestedTone, 'RELATIONSHIP', section);
+      rendered = await queueAIRequest(
+        () => renderSection(canonical, requestedTone, 'RELATIONSHIP', section),
+        { priority: AI_PRIORITY.NORMAL }
+      );
     } else {
-      rendered = await renderFullOutput(canonical, requestedTone, 'RELATIONSHIP');
+      rendered = await queueAIRequest(
+        () => renderFullOutput(canonical, requestedTone, 'RELATIONSHIP'),
+        { priority: AI_PRIORITY.NORMAL }
+      );
     }
 
     // Cache result
-    memoryStore.saveToneCache(cacheKey, rendered);
+    await db.saveToneCache(cacheKey, userId, requestedTone, 'relationship', rendered);
 
     console.log(`[Tone] Rendered Relationship output in ${requestedTone} tone${section ? ` (section: ${section})` : ''}`);
 
@@ -262,9 +275,9 @@ toneRouter.post('/render/relationship', async (req, res, next) => {
  * 
  * Clear tone cache for user
  */
-toneRouter.delete('/cache', (req, res) => {
+toneRouter.delete('/cache', async (req, res) => {
   const userId = getUserId(req);
-  memoryStore.clearToneCacheForUser(userId);
+  await db.clearToneCacheForUser(userId);
   
   res.json({
     success: true,

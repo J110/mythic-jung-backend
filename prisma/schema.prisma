@@ -1,0 +1,217 @@
+// Prisma schema for Mythic Jung Backend
+// Supports PostgreSQL for production, SQLite for development
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USER MANAGEMENT
+// ============================================================================
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  profile            Profile?
+  meOutput           MeOutput?
+  relationshipSet    RelationshipSet?
+  relationshipOutput RelationshipOutput?
+  preferences        UserPreferences?
+  assessments        Assessment[]
+  lockedPackets      LockedPacket[]
+  psycheRuns         PsycheRun[]
+  toneCache          ToneCache[]
+  tempResonanceData  TempResonanceData?
+
+  @@index([username])
+}
+
+// ============================================================================
+// ME DOMAIN
+// ============================================================================
+
+model Profile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Character inputs and references
+  characters          Json    // Array of character names
+  characterReferences Json?   // Recognition results with context
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model MeOutput {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Full generated output (JSON blob for flexibility)
+  selfModel       Json?   // SelfModel data
+  story           Json?   // StoryOutput
+  identification  Json?   // IdentificationOutput  
+  functioning     Json?   // FunctioningOutput
+  actions         Json?   // ActionsOutput
+  lifeDomains     Json?   // LifeDomainsOutput
+  myth            Json?   // MythOutput
+  
+  // V2 fields
+  identificationV2 Json?
+  constellation    Json?
+  
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Assessment {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  assessmentType String
+  questionId     String
+  answer         Json
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, assessmentType, questionId])
+  @@index([userId])
+}
+
+model LockedPacket {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  slotIndex Int
+  packet    Json     // Full character packet data
+  
+  lockedAt DateTime @default(now())
+
+  @@unique([userId, slotIndex])
+  @@index([userId])
+}
+
+// ============================================================================
+// RELATIONSHIP DOMAIN
+// ============================================================================
+
+model RelationshipSet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  partnerName          String?
+  partnerCharacters    Json?    // Array of partner character names
+  recognizedCharacters Json?    // Recognition results
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model RelationshipOutput {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Full relationship output (JSON for flexibility)
+  dynamics     Json?
+  compatibility Json?
+  growth       Json?
+  whatIf       Json?
+  
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ============================================================================
+// PSYCHE MODEL RUNS
+// ============================================================================
+
+model PsycheRun {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  runId     String
+  context   String   // 'ME' or 'REL'
+  data      Json     // Full PsycheModel data
+  
+  createdAt DateTime @default(now())
+
+  @@unique([userId, context, runId])
+  @@index([userId, context])
+}
+
+// ============================================================================
+// USER PREFERENCES & TONE
+// ============================================================================
+
+model UserPreferences {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  narrativeTone String @default("PLAIN")
+  otherPrefs    Json?
+  
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model ToneCache {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  cacheKey  String   @unique
+  tone      String
+  outputType String  // 'me' or 'relationship'
+  rendered  Json     // Rendered output
+  
+  cachedAt DateTime @default(now())
+  expiresAt DateTime?
+
+  @@index([userId])
+  @@index([cacheKey])
+}
+
+// ============================================================================
+// TEMPORARY DATA (Resonance/Clarification flow)
+// ============================================================================
+
+model TempResonanceData {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  data      Json     // Temporary resonance analysis data
+  context   String?  // 'ME' or 'REL'
+  
+  savedAt   DateTime @default(now())
+  expiresAt DateTime?
+
+  @@index([userId])
+}

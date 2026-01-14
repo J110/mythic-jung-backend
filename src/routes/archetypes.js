@@ -7,7 +7,7 @@
  */
 
 import express from 'express';
-import { memoryStore } from '../storage/memoryStore.js';
+import { db } from '../storage/database.js';
 import {
   computeConstellation,
   computeRelationshipConstellation,
@@ -41,7 +41,7 @@ archetypesRouter.get('/me/archetypes', async (req, res, next) => {
     }
     
     // Get Me output (which contains selfModel and profiles)
-    const meOutput = memoryStore.getOutput(userId);
+    const meOutput = await db.getMeOutput(userId);
     
     // First, check if constellation is already in the output (computed during generation)
     if (meOutput?.constellation) {
@@ -64,7 +64,7 @@ archetypesRouter.get('/me/archetypes', async (req, res, next) => {
     }
     
     // Get profile data
-    const profile = memoryStore.getProfile(userId);
+    const profile = await db.getProfile(userId);
     if (!profile || !profile.characters) {
       return res.status(404).json({
         error: 'Character profiles not found.',
@@ -73,19 +73,17 @@ archetypesRouter.get('/me/archetypes', async (req, res, next) => {
     }
     
     // Get resonance data if available
-    const resonanceData = memoryStore.getCharacterReferences(userId);
+    const resonanceData = await db.getCharacterReferences(userId);
     
     // Get assessment answers if available
-    const assessmentAnswers = memoryStore.getAssessmentAnswers(userId) || [];
+    const assessmentAnswers = await db.getAssessmentAnswers(userId) || [];
     
     // Extract character profiles from the output
-    // The profiles are stored in meOutput.characterProfiles or can be retrieved from the profile
     const characterProfiles = meOutput.characterProfiles || profile.characters?.map(c => ({
       name: c.displayName,
       canonicalId: c.canonicalId,
       archetypeSignals: c.archetypeSignals || { primaryArchetypes: ['Complex'] },
       behavioralTraits: c.behavioralTraits || {},
-      // Generate default motifs from archetypes if not present
       motifs: c.motifs || generateDefaultMotifs(c.archetypeSignals?.primaryArchetypes || ['Hero']),
     })) || [];
     
@@ -191,17 +189,12 @@ archetypesRouter.get('/relationship/archetypes', async (req, res, next) => {
     }
     
     // Get Relationship output
-    const relationshipOutput = memoryStore.getRelationshipOutput(userId);
+    const relationshipOutput = await db.getRelationshipOutput(userId);
     
     // First, check if constellation is already in the output (computed during generation)
     if (relationshipOutput?.constellation) {
       console.log('[Archetypes] Using pre-computed relationship constellation from output');
-      // IMPORTANT: Use ONLY constellation data from relationshipOutput
-      // DO NOT fetch meOutput dynamically - this causes the Relations page to refresh
-      // when Me output changes, leading to inconsistent displays
       const response = {
-        // Use the meConstellation that was computed and stored WITH the relationship output
-        // This ensures consistency - relationship output is independent from Me output changes
         meConstellation: relationshipOutput.constellation.meConstellation || null,
         partnerConstellation: relationshipOutput.constellation.partnerConstellation,
         relationshipConstellation: relationshipOutput.constellation.relationshipConstellation,
@@ -213,8 +206,7 @@ archetypesRouter.get('/relationship/archetypes', async (req, res, next) => {
     }
     
     // Fallback: compute if not in output
-    // Get Me output
-    const meOutput = memoryStore.getOutput(userId);
+    const meOutput = await db.getMeOutput(userId);
     if (!meOutput || !meOutput.selfModel) {
       return res.status(404).json({
         error: 'Me profile not generated yet.',
@@ -230,9 +222,9 @@ archetypesRouter.get('/relationship/archetypes', async (req, res, next) => {
     }
     
     // Get Me profile data
-    const meProfile = memoryStore.getProfile(userId);
-    const meResonanceData = memoryStore.getCharacterReferences(userId);
-    const meAssessments = memoryStore.getAssessmentAnswers(userId) || [];
+    const meProfile = await db.getProfile(userId);
+    const meResonanceData = await db.getCharacterReferences(userId);
+    const meAssessments = await db.getAssessmentAnswers(userId) || [];
     
     // Extract Me character profiles
     const meProfiles = meOutput.characterProfiles || meProfile?.characters?.map(c => ({
@@ -244,14 +236,14 @@ archetypesRouter.get('/relationship/archetypes', async (req, res, next) => {
     })) || [];
     
     // Get Partner character profiles from relationship output
-    const relationshipSet = memoryStore.getRelationshipSet(userId);
+    const relationshipSet = await db.getRelationshipSet(userId);
     const partnerProfiles = (relationshipOutput.otherProfiles || []).map(p => ({
       ...p,
       motifs: p.motifs || generateDefaultMotifs(p.archetypeSignals?.primaryArchetypes || ['Hero']),
     }));
     
     // Get partner resonance data if available
-    const partnerResonanceData = memoryStore.getRelationshipCharacterReferences(userId);
+    const partnerResonanceData = relationshipSet?.recognizedCharacters || [];
     
     console.log(`[Archetypes] Computing constellations - Me: ${meProfiles.length} profiles, Partner: ${partnerProfiles.length} profiles`);
     
@@ -267,7 +259,6 @@ archetypesRouter.get('/relationship/archetypes', async (req, res, next) => {
     }
     
     // Compute Partner constellation (no assessments for partner)
-    // Use the relationshipModel's otherSelfModel if available
     const partnerSelfModel = relationshipOutput.otherSelfModel || {
       coreMappings: relationshipOutput.relationshipModel?._internal?.otherMappings,
     };
@@ -276,7 +267,7 @@ archetypesRouter.get('/relationship/archetypes', async (req, res, next) => {
       partnerSelfModel,
       partnerProfiles,
       partnerResonanceData ? { characterReferences: partnerResonanceData } : null,
-      [] // No assessments for partner
+      []
     );
     
     // Compute relationship constellation

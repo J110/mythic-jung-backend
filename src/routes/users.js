@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import { memoryStore } from '../storage/memoryStore.js';
+import { db } from '../storage/database.js';
 
 export const usersRouter = express.Router();
 
@@ -23,15 +23,15 @@ usersRouter.post('/login', async (req, res) => {
     const normalizedUsername = username.trim().toLowerCase();
     
     // Check if user exists
-    let user = memoryStore.getUserByUsername(normalizedUsername);
+    let user = await db.getUserByUsername(normalizedUsername);
     let isReturningUser = false;
     let hasExistingData = false;
     
     if (user) {
       // Returning user - check if they have existing data
       isReturningUser = true;
-      const meOutput = memoryStore.getMeOutput(user.id);
-      const relationshipOutput = memoryStore.getRelationshipOutput(user.id);
+      const meOutput = await db.getMeOutput(user.id);
+      const relationshipOutput = await db.getRelationshipOutput(user.id);
       hasExistingData = !!(meOutput?.story || relationshipOutput?.myth);
       
       console.log(`[Users] Returning user: ${normalizedUsername} (${user.id}), hasData: ${hasExistingData}`);
@@ -45,24 +45,24 @@ usersRouter.post('/login', async (req, res) => {
         createdAt: new Date().toISOString(),
         lastLoginAt: new Date().toISOString(),
       };
-      memoryStore.saveUser(user);
+      await db.saveUser(user);
       console.log(`[Users] New user created: ${normalizedUsername} (${userId})`);
     }
     
     // Update last login
     user.lastLoginAt = new Date().toISOString();
-    memoryStore.saveUser(user);
+    await db.saveUser(user);
     
     // Get summary of existing data if any
     let dataSummary = null;
     if (hasExistingData) {
-      const meOutput = memoryStore.getMeOutput(user.id);
-      const packets = memoryStore.getLockedPackets(user.id);
+      const meOutput = await db.getMeOutput(user.id);
+      const packets = await db.getLockedPackets(user.id);
       
       dataSummary = {
         characterCount: packets?.length || 0,
         hasStory: !!meOutput?.story,
-        hasRelationship: !!memoryStore.getRelationshipOutput(user.id)?.myth,
+        hasRelationship: !!(await db.getRelationshipOutput(user.id))?.myth,
         lastUpdated: meOutput?.generatedAt || user.lastLoginAt,
       };
     }
@@ -93,15 +93,15 @@ usersRouter.get('/:userId/status', async (req, res) => {
   try {
     const { userId } = req.params;
     
-    const user = memoryStore.getUser(userId);
+    const user = await db.getUser(userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    const meOutput = memoryStore.getMeOutput(userId);
-    const relationshipOutput = memoryStore.getRelationshipOutput(userId);
-    const packets = memoryStore.getLockedPackets(userId);
-    const tonePreference = memoryStore.getTonePreference(userId);
+    const meOutput = await db.getMeOutput(userId);
+    const relationshipOutput = await db.getRelationshipOutput(userId);
+    const packets = await db.getLockedPackets(userId);
+    const tonePreference = await db.getTonePreference(userId);
     
     res.json({
       user: {
@@ -134,15 +134,15 @@ usersRouter.get('/:userId/sync', async (req, res) => {
   try {
     const { userId } = req.params;
     
-    const user = memoryStore.getUser(userId);
+    const user = await db.getUser(userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    const meOutput = memoryStore.getMeOutput(userId);
-    const relationshipOutput = memoryStore.getRelationshipOutput(userId);
-    const relationshipSet = memoryStore.getRelationshipSet(userId);
-    const tonePreference = memoryStore.getTonePreference(userId);
+    const meOutput = await db.getMeOutput(userId);
+    const relationshipOutput = await db.getRelationshipOutput(userId);
+    const relationshipSet = await db.getRelationshipSet(userId);
+    const tonePreference = await db.getTonePreference(userId);
     
     console.log(`[Users] Sync requested for user: ${user.username} (${userId})`);
     console.log(`[Users] Has meOutput: ${!!meOutput?.story}, Has relationshipOutput: ${!!relationshipOutput?.myth}`);
@@ -176,13 +176,13 @@ usersRouter.delete('/:userId/data', async (req, res) => {
   try {
     const { userId } = req.params;
     
-    const user = memoryStore.getUser(userId);
+    const user = await db.getUser(userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
     
     // Clear all user data but keep the user account
-    memoryStore.clearUserData(userId);
+    await db.clearUserData(userId);
     
     console.log(`[Users] Cleared all data for user: ${user.username} (${userId})`);
     

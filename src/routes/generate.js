@@ -1,6 +1,7 @@
 import express from 'express';
-import { memoryStore } from '../storage/memoryStore.js';
+import { db } from '../storage/database.js';
 import { generateOutput } from '../services/generationService.js';
+import { queueAIRequest, AI_PRIORITY } from '../services/aiQueue.js';
 
 export const generateRouter = express.Router();
 
@@ -16,14 +17,14 @@ generateRouter.post('/', async (req, res, next) => {
 
     // Get cached output if not forcing regeneration
     if (!force) {
-      const cached = memoryStore.getOutput(userId);
+      const cached = await db.getMeOutput(userId);
       if (cached) {
         return res.json(cached);
       }
     }
 
     // Get user data for generation
-    const userData = memoryStore.getUserData(userId);
+    const userData = await db.getUserData(userId);
 
     if (!userData.profile || !userData.profile.characters || userData.profile.characters.length === 0) {
       return res.status(400).json({
@@ -32,18 +33,21 @@ generateRouter.post('/', async (req, res, next) => {
     }
 
     // Get character references from Resonance Engine (if any)
-    const characterReferences = memoryStore.getCharacterReferences(userId);
+    const characterReferences = await db.getCharacterReferences(userId);
     userData.characterReferences = characterReferences;
 
     const assessmentCount = userData.assessments?.length || 0;
     const refCount = characterReferences.filter(r => r?.mode !== 'NONE').length;
     console.log(`Generating output for user ${userId} with ${userData.profile.characters.length} characters, ${assessmentCount} assessments, ${refCount} references`);
 
-    // Generate output (5-engine pipeline with Example Engine)
-    const output = await generateOutput(userData, { force });
+    // Generate output (queued to prevent rate limits)
+    const output = await queueAIRequest(
+      () => generateOutput(userData, { force }),
+      { priority: AI_PRIORITY.NORMAL }
+    );
 
     // Cache the output
-    memoryStore.saveOutput(userId, output);
+    await db.saveMeOutput(userId, output);
 
     console.log(`Output generated and cached for user ${userId}`);
     res.json(output);

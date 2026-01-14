@@ -7,7 +7,8 @@
 import express from 'express';
 import { analyzeAllCharacters, processResonanceChoices } from '../services/resonanceEngine.js';
 import { recognizeCharacters } from '../services/characterRecognitionEngine.js';
-import { memoryStore } from '../storage/memoryStore.js';
+import { db } from '../storage/database.js';
+import { queueAIRequest, AI_PRIORITY } from '../services/aiQueue.js';
 
 export const resonanceRouter = express.Router();
 
@@ -37,10 +38,8 @@ resonanceRouter.post('/analyze', async (req, res, next) => {
     
     // Build reference hints from slots if provided
     const referenceHints = (slots || []).reduce((acc, slot) => {
-      // Debug: Log what we receive
       console.log(`[Resonance] Slot: rawName="${slot.rawName}", referenceText="${slot.referenceText}" (type: ${typeof slot.referenceText})`);
       
-      // Handle null, undefined, or empty reference text
       const refText = slot.referenceText;
       if (refText && typeof refText === 'string' && refText.trim() !== '') {
         acc[slot.rawName] = {
@@ -66,7 +65,6 @@ resonanceRouter.post('/analyze', async (req, res, next) => {
     }
     
     // ENHANCE inputs with references - embed references into input strings for better AI recognition
-    // This mirrors what re-recognition does: "Allison (from: Yes Man 2008)"
     const enhancedInputs = characterInputs.map(input => {
       const ref = referenceHints[input];
       if (ref && ref.text) {
@@ -87,22 +85,23 @@ resonanceRouter.post('/analyze', async (req, res, next) => {
       }
     });
     
-    // Step 1: Recognize characters (with enhanced inputs that include references)
-    const recognitionResult = await recognizeCharacters(enhancedInputs, enhancedReferenceHints);
+    // Step 1: Recognize characters (queued to prevent rate limits)
+    const recognitionResult = await queueAIRequest(
+      () => recognizeCharacters(enhancedInputs, enhancedReferenceHints),
+      { priority: AI_PRIORITY.HIGH }
+    );
     
-    // Map recognition results back to ORIGINAL inputs (not enhanced)
-    // This ensures downstream code works correctly with the original character names
+    // Map recognition results back to ORIGINAL inputs
     const recognizedCharacters = recognitionResult.results.map((result, i) => {
       const originalInput = characterInputs[i];
       const enhancedInput = enhancedInputs[i];
       
-      // If the input was enhanced, restore the original
       if (result.input !== originalInput) {
         console.log(`[Resonance] Mapping result back: "${result.input}" → "${originalInput}"`);
         return {
           ...result,
           input: originalInput,
-          enhancedInput: enhancedInput, // Keep for reference
+          enhancedInput: enhancedInput,
         };
       }
       return result;
@@ -121,7 +120,6 @@ resonanceRouter.post('/analyze', async (req, res, next) => {
     }
     
     if (validCount < 4) {
-      // Build helpful error message
       let errorMsg = `Only ${validCount} characters recognized. Need at least 4.`;
       if (strictFailures.length > 0) {
         errorMsg += ` ${strictFailures.length} character(s) not found in their specified reference.`;
@@ -143,10 +141,10 @@ resonanceRouter.post('/analyze', async (req, res, next) => {
     const ambiguityAnalysis = await analyzeAllCharacters(recognizedCharacters, referenceHints);
     
     // Store recognition result temporarily for the clarification flow
-    memoryStore.saveTempResonanceData(userId, {
+    await db.saveTempResonanceData(userId, {
       recognizedCharacters,
       ambiguityAnalysis,
-      referenceHints, // Store for downstream use
+      referenceHints,
       timestamp: new Date().toISOString(),
     });
     
@@ -157,13 +155,11 @@ resonanceRouter.post('/analyze', async (req, res, next) => {
       const entryRef = referenceHints[c.input];
       const isReferenceMismatch = entryRef && c.entryReferenceMismatch;
       
-      // Get franchise/medium from the recognized character
       const recognizedChar = recognizedCharacters.find(rc => rc.input === c.input);
       const franchise = c.franchise || recognizedChar?.canonical?.franchise;
       const medium = c.medium || recognizedChar?.canonical?.medium || null;
       const charName = c.characterName || recognizedChar?.canonical?.name || c.input;
       
-      // Determine clarification message
       let clarificationMessage = c.clarificationMessage;
       if (!clarificationMessage && isReferenceMismatch) {
         clarificationMessage = 'The match does not align with your reference. Please confirm or provide the character name.';
@@ -178,30 +174,23 @@ resonanceRouter.post('/analyze', async (req, res, next) => {
         canonicalId: c.canonicalId,
         needsClarification: c.needsClarification || isReferenceMismatch || c.aiNeedsClarification,
         disambiguationReason: c.disambiguationReason || c.reason,
-        // Clarification details
         clarificationMessage: clarificationMessage,
         aiNeedsClarification: c.aiNeedsClarification || false,
         inputWasActor: c.inputWasActor || recognizedChar?.inputWasActor || false,
-        // FRANCHISE/MEDIUM INFO - always include (might be null if unknown)
         franchise: franchise || null,
         medium: medium,
         referenceDescription: c.referenceDescription || (franchise 
           ? `${charName} from ${franchise}${medium ? ` (${medium})` : ''}`
           : `${charName} - please confirm`),
-        // Entry reference info
         hasEntryReference: !!entryRef,
         entryReferenceText: entryRef?.text,
         entryReferenceMismatch: isReferenceMismatch,
         entryReferenceMismatchMessage: isReferenceMismatch 
           ? 'Top match does not match your reference. Please confirm or select an alternative.'
           : null,
-        // Version options (show reference-matching first)
         versionOptions: c.versionOptions || [],
-        // Phase options
         phaseOptions: c.phaseOptions || [],
-        // Alternative candidates (if reference-based, show reference matches first)
         alternativeCandidates: c.alternativeCandidates || [],
-        // Whether to show arc exclusion section
         showExclusionSection: c.showExclusionSection || false,
       };
     });
@@ -228,22 +217,19 @@ resonanceRouter.post('/analyze', async (req, res, next) => {
  * POST /v1/resonance/confirm
  * 
  * Confirm character selections with optional clarifications
- * This finalizes the character set and allows generation to proceed
- * 
- * Now accepts meCount and relationshipEnabled to properly split Me vs Relationship characters
  */
 resonanceRouter.post('/confirm', async (req, res, next) => {
   try {
     const userId = getUserId(req);
     const { 
       clarifications, 
-      meCount = 4,           // Number of "Me" characters (first N)
+      meCount = 4,
       relationshipEnabled = false,
       relationshipType = 'platonic'
     } = req.body;
     
     // Retrieve the stored recognition data
-    const tempData = memoryStore.getTempResonanceData(userId);
+    const tempData = await db.getTempResonanceData(userId);
     if (!tempData) {
       return res.status(400).json({
         error: 'No pending resonance analysis. Call /analyze first.',
@@ -281,41 +267,37 @@ resonanceRouter.post('/confirm', async (req, res, next) => {
     
     // Save Me character references
     const meReferences = meCharacters.map(c => c.reference);
-    memoryStore.saveCharacterReferences(userId, meReferences);
+    await db.saveCharacterReferences(userId, meReferences);
     
-    // Save Relationship character references (including full recognition data)
+    // Save Relationship character references
     if (relationshipEnabled && relationshipCharacters.length >= 4) {
       console.log(`[Resonance] Saving ${relationshipCharacters.length} relationship characters`);
-      console.log(`[Resonance] Relationship characters: ${relationshipCharacters.map(c => c.canonical?.name).join(', ')}`);
       
-      // Store full recognition results for relationship characters
-      // This prevents re-recognition in the relationship engine
-      memoryStore.saveRelationshipCharacterReferences(userId, relationshipCharacters);
-      
-      // Also build reference hints for relationship characters (in case re-recognition is needed)
-      const relationshipReferenceHints = {};
-      relationshipCharacters.forEach(c => {
-        if (referenceHints?.[c.input]) {
-          relationshipReferenceHints[c.input] = referenceHints[c.input];
-        }
-      });
-      
-      // Update relationship set with reference hints
-      const existingSet = memoryStore.getRelationshipSet(userId);
+      // Get existing relationship set and update with recognized characters
+      const existingSet = await db.getRelationshipSet(userId);
       if (existingSet) {
-        memoryStore.saveRelationshipSet(userId, {
+        // Build reference hints for relationship characters
+        const relationshipReferenceHints = {};
+        relationshipCharacters.forEach(c => {
+          if (referenceHints?.[c.input]) {
+            relationshipReferenceHints[c.input] = referenceHints[c.input];
+          }
+        });
+        
+        await db.saveRelationshipSet(userId, {
           ...existingSet,
+          recognizedCharacters: relationshipCharacters,
           referenceHints: relationshipReferenceHints,
         });
       }
     }
     
     // Clear temp data
-    memoryStore.clearTempResonanceData(userId);
+    await db.clearTempResonanceData(userId);
     
     // Clear cached outputs to force regeneration with new references
-    memoryStore.clearOutput(userId);
-    memoryStore.clearRelationshipOutput(userId);
+    await db.clearMeOutput(userId);
+    await db.clearRelationshipOutput(userId);
     
     console.log(`[Resonance] Confirmed ${characterSet.length} characters for user ${userId}`);
     console.log(`[Resonance] Stored ${meReferences.filter(r => r?.mode !== 'NONE').length} Me reference constraints`);
@@ -337,17 +319,15 @@ resonanceRouter.post('/confirm', async (req, res, next) => {
  * POST /v1/resonance/rerecognize
  * 
  * Re-recognize a single character that was incorrectly identified.
- * User can optionally provide a corrected name or hint.
- * Supports comma-separated references (e.g., "Don, Fashion" for multiple movie references).
  */
 resonanceRouter.post('/rerecognize', async (req, res, next) => {
   try {
     const userId = getUserId(req);
     const { 
-      characterIndex,      // Index of the character in the original list
-      originalInput,       // Original input string
-      correctedInput,      // Optional: user-provided correction (e.g., "Lara Axelrod from Billions")
-      hint,                // Optional: additional hint (e.g., "Don, Fashion" or "Billions TV show")
+      characterIndex,
+      originalInput,
+      correctedInput,
+      hint,
     } = req.body;
     
     if (characterIndex === undefined || !originalInput) {
@@ -357,12 +337,12 @@ resonanceRouter.post('/rerecognize', async (req, res, next) => {
       });
     }
     
-    let tempData = memoryStore.getTempResonanceData(userId);
+    let tempData = await db.getTempResonanceData(userId);
     
     // If no temp data, try to recreate from stored profile
     if (!tempData) {
       console.log('[Resonance] No temp data found, attempting to recreate from profile...');
-      const profile = memoryStore.getProfile(userId);
+      const profile = await db.getProfile(userId);
       
       if (!profile?.characters?.length) {
         return res.status(400).json({
@@ -373,7 +353,10 @@ resonanceRouter.post('/rerecognize', async (req, res, next) => {
       
       // Re-create minimal temp data from stored profile
       const characterInputs = profile.characters.map(c => c.displayName || c.name);
-      const recognitionResult = await recognizeCharacters(characterInputs, {});
+      const recognitionResult = await queueAIRequest(
+        () => recognizeCharacters(characterInputs, {}),
+        { priority: AI_PRIORITY.HIGH }
+      );
       const ambiguityAnalysis = await analyzeAllCharacters(recognitionResult.results, {});
       
       tempData = {
@@ -383,7 +366,7 @@ resonanceRouter.post('/rerecognize', async (req, res, next) => {
         timestamp: new Date().toISOString(),
       };
       
-      memoryStore.saveTempResonanceData(userId, tempData);
+      await db.saveTempResonanceData(userId, tempData);
       console.log('[Resonance] Recreated temp data from profile');
     }
     
@@ -392,11 +375,9 @@ resonanceRouter.post('/rerecognize', async (req, res, next) => {
     // Build the input for re-recognition
     const inputForRecognition = correctedInput || originalInput;
     
-    // Parse comma-separated hints (e.g., "Don, Fashion" becomes "Don, Fashion")
-    // This allows users to provide multiple movie/show references
+    // Parse comma-separated hints
     let parsedHint = hint;
     if (hint && hint.includes(',')) {
-      // Multiple references - clean them up but keep together for AI context
       parsedHint = hint.split(',').map(h => h.trim()).filter(h => h).join(', ');
       console.log(`[Resonance] Multiple references provided: "${parsedHint}"`);
     }
@@ -405,20 +386,23 @@ resonanceRouter.post('/rerecognize', async (req, res, next) => {
     
     console.log(`[Resonance] Re-recognizing character at index ${characterIndex}: "${originalInput}" → "${enhancedHint}"`);
     
-    // Build reference hints for this character with ASSISTIVE mode to be more flexible
+    // Build reference hints for this character
     const charRefHints = {};
     if (parsedHint) {
       charRefHints[enhancedHint] = {
         text: parsedHint,
-        type: 'FILM', // Assume film reference for actor-to-character mapping
-        limitMode: 'ASSISTIVE', // Use assistive mode for better results (STRICT can be too restrictive)
+        type: 'FILM',
+        limitMode: 'ASSISTIVE',
       };
     } else if (referenceHints?.[originalInput]) {
       charRefHints[inputForRecognition] = referenceHints[originalInput];
     }
     
-    // Re-recognize just this one character
-    const recognitionResult = await recognizeCharacters([enhancedHint], charRefHints);
+    // Re-recognize just this one character (queued)
+    const recognitionResult = await queueAIRequest(
+      () => recognizeCharacters([enhancedHint], charRefHints),
+      { priority: AI_PRIORITY.HIGH }
+    );
     const newRecognition = recognitionResult.results[0];
     
     if (!newRecognition) {
@@ -429,9 +413,8 @@ resonanceRouter.post('/rerecognize', async (req, res, next) => {
       });
     }
     
-    // Check if AI needs clarification (e.g., actor name but doesn't know character)
+    // Check if AI needs clarification
     if (newRecognition.needsClarification && newRecognition.inputWasActor) {
-      // AI recognized it as an actor but doesn't know the character
       return res.status(400).json({
         error: `We recognize this as an actor name, but need the character name.`,
         code: 'ACTOR_CHARACTER_UNKNOWN',
@@ -464,7 +447,6 @@ resonanceRouter.post('/rerecognize', async (req, res, next) => {
       });
     }
     
-    // If we got here, we have some recognition (either RECOGNIZED or AMBIGUOUS with a name)
     const characterName = newRecognition.canonical?.name || inputForRecognition;
     const franchise = newRecognition.canonical?.franchise || 'Unknown';
     
@@ -474,7 +456,7 @@ resonanceRouter.post('/rerecognize', async (req, res, next) => {
     const updatedCharacters = [...recognizedCharacters];
     updatedCharacters[characterIndex] = {
       ...newRecognition,
-      input: originalInput, // Keep original input for reference
+      input: originalInput,
       wasRerecognized: true,
       rerecognizedFrom: enhancedHint,
       userProvidedHint: parsedHint,
@@ -484,7 +466,7 @@ resonanceRouter.post('/rerecognize', async (req, res, next) => {
     const updatedAmbiguity = await analyzeAllCharacters(updatedCharacters, referenceHints);
     
     // Update temp data
-    memoryStore.saveTempResonanceData(userId, {
+    await db.saveTempResonanceData(userId, {
       recognizedCharacters: updatedCharacters,
       ambiguityAnalysis: updatedAmbiguity,
       referenceHints,
@@ -529,7 +511,7 @@ resonanceRouter.post('/skip', async (req, res, next) => {
   try {
     const userId = getUserId(req);
     
-    const tempData = memoryStore.getTempResonanceData(userId);
+    const tempData = await db.getTempResonanceData(userId);
     if (!tempData) {
       return res.status(400).json({
         error: 'No pending resonance analysis.',
@@ -555,13 +537,13 @@ resonanceRouter.post('/skip', async (req, res, next) => {
     
     // Save empty references (defaults)
     const references = characterSet.map(c => c.reference);
-    memoryStore.saveCharacterReferences(userId, references);
+    await db.saveCharacterReferences(userId, references);
     
     // Clear temp data
-    memoryStore.clearTempResonanceData(userId);
+    await db.clearTempResonanceData(userId);
     
     // Clear cached output to force regeneration
-    memoryStore.clearOutput(userId);
+    await db.clearMeOutput(userId);
     
     console.log(`[Resonance] Skipped clarification for user ${userId}, using defaults`);
     
@@ -584,7 +566,7 @@ resonanceRouter.post('/skip', async (req, res, next) => {
 resonanceRouter.get('/status', async (req, res, next) => {
   try {
     const userId = getUserId(req);
-    const tempData = memoryStore.getTempResonanceData(userId);
+    const tempData = await db.getTempResonanceData(userId);
     
     res.json({
       hasPendingAnalysis: !!tempData,

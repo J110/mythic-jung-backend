@@ -1,6 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+
+// Load environment variables first
+dotenv.config();
+
+// Import routes
 import { profileRouter } from './routes/profile.js';
 import { assessmentRouter } from './routes/assessments.js';
 import { generateRouter } from './routes/generate.js';
@@ -12,18 +17,29 @@ import { archetypesRouter } from './routes/archetypes.js';
 import { runsRouter } from './routes/runs.js';
 import { usersRouter } from './routes/users.js';
 
-dotenv.config();
+// Import infrastructure services
+import { initDatabase, closeDatabase, db } from './storage/database.js';
+import { initCache, closeCache, cache } from './services/cacheService.js';
+import { getQueueStats, clearQueue, waitForIdle } from './services/aiQueue.js';
+import { generalLimiter, authLimiter } from './middleware/rateLimiter.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
-// CORS configuration for production
+// ============================================================================
+// CORS CONFIGURATION
+// ============================================================================
+
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:3001',
   'http://localhost:8080',
   'http://localhost:5000',
-  process.env.FRONTEND_URL, // Set this in Render to your Vercel URL
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+  'http://127.0.0.1:8080',
+  process.env.FRONTEND_URL,
 ].filter(Boolean);
 
 app.use(cors({
@@ -40,55 +56,253 @@ app.use(cors({
         }
         callback(new Error('Not allowed by CORS'));
       }
-    : true, // Allow all origins in development
+    : true,
   credentials: true,
 }));
+
+// ============================================================================
+// REQUEST PARSING
+// ============================================================================
+
 app.use(express.json({ limit: '10mb' }));
 
-// Health check
+// ============================================================================
+// RATE LIMITING (applies to all routes)
+// ============================================================================
+
+if (process.env.NODE_ENV === 'production') {
+  app.use(generalLimiter);
+}
+
+// ============================================================================
+// REQUEST LOGGING (development)
+// ============================================================================
+
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      if (req.path !== '/health') {
+        console.log(`${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+      }
+    });
+    next();
+  });
+}
+
+// ============================================================================
+// HEALTH CHECK & STATUS ENDPOINTS
+// ============================================================================
+
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    version: process.env.npm_package_version || '1.0.0',
+  });
 });
 
-// API Routes - Users (authentication/identification)
-app.use('/v1/users', usersRouter);
+app.get('/v1/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+  });
+});
 
-// API Routes - Resonance (clarification flow)
+// Detailed status endpoint (internal use)
+app.get('/v1/status', async (req, res) => {
+  try {
+    const queueStats = getQueueStats();
+    const cacheStats = await cache.getStats();
+    
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
+      database: {
+        connected: db.isUsingDatabase(),
+        type: db.isUsingDatabase() ? 'postgresql' : 'memory',
+      },
+      cache: {
+        connected: cache.isUsingRedis(),
+        type: cache.isUsingRedis() ? 'redis' : 'memory',
+        ...cacheStats,
+      },
+      aiQueue: queueStats,
+      openai: {
+        configured: !!process.env.OPENAI_API_KEY,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      error: error.message,
+    });
+  }
+});
+
+// ============================================================================
+// API ROUTES
+// ============================================================================
+
+// Users (authentication) - with auth rate limiting
+app.use('/v1/users', authLimiter, usersRouter);
+
+// Resonance (clarification flow)
 app.use('/v1/resonance', resonanceRouter);
 
-// API Routes - Me domain
+// Me domain
 app.use('/v1/profile', profileRouter);
 app.use('/v1/assessments', assessmentRouter);
 app.use('/v1/generate', generateRouter);
 app.use('/v1/output', outputRouter);
 
-// API Routes - Relationship domain (independent)
+// Relationship domain (independent)
 app.use('/v1/relationship', relationshipRouter);
 
-// API Routes - Tone (narrative presentation)
+// Tone (narrative presentation)
 app.use('/v1/tone', toneRouter);
 
-// API Routes - Archetypes (constellation)
+// Archetypes (constellation)
 app.use('/v1', archetypesRouter);
 
-// API Routes - Runs (unified PsycheModel)
+// Runs (unified PsycheModel)
 app.use('/v1/runs', runsRouter);
+
+// ============================================================================
+// ERROR HANDLING
+// ============================================================================
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found', path: req.path });
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
+  
+  // Rate limit errors
+  if (err.status === 429) {
+    return res.status(429).json({
+      error: 'Rate limit exceeded',
+      message: err.message,
+      retryAfter: err.retryAfter,
+    });
+  }
+  
+  // CORS errors
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({
+      error: 'CORS error',
+      message: 'Origin not allowed',
+    });
+  }
+  
+  // Generic error
   res.status(err.status || 500).json({
     error: err.message || 'Internal server error',
   });
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not found' });
+// ============================================================================
+// GRACEFUL SHUTDOWN
+// ============================================================================
+
+let server;
+let isShuttingDown = false;
+
+async function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  
+  console.log(`\n[Server] Received ${signal}, starting graceful shutdown...`);
+  
+  // Stop accepting new connections
+  if (server) {
+    server.close(() => {
+      console.log('[Server] HTTP server closed');
+    });
+  }
+  
+  try {
+    // Wait for AI queue to drain (with timeout)
+    console.log('[Server] Waiting for AI queue to drain...');
+    const queueTimeout = setTimeout(() => {
+      console.log('[Server] Queue drain timeout, clearing...');
+      clearQueue();
+    }, 10000); // 10 second timeout
+    
+    await waitForIdle();
+    clearTimeout(queueTimeout);
+    console.log('[Server] AI queue drained');
+    
+    // Close database connection
+    await closeDatabase();
+    
+    // Close cache connection
+    await closeCache();
+    
+    console.log('[Server] Graceful shutdown complete');
+    process.exit(0);
+  } catch (error) {
+    console.error('[Server] Error during shutdown:', error);
+    process.exit(1);
+  }
+}
+
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  console.error('[Server] Uncaught Exception:', error);
+  gracefulShutdown('uncaughtException');
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`Server running on http://${HOST}:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`OpenAI API Key: ${process.env.OPENAI_API_KEY ? 'Set ✓' : 'Not set ✗'}`);
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Server] Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit on unhandled rejection, just log
 });
+
+// ============================================================================
+// SERVER STARTUP
+// ============================================================================
+
+async function startServer() {
+  try {
+    console.log('[Server] Starting Mythic Jung Backend...');
+    console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
+    
+    // Initialize database
+    const dbConnected = await initDatabase();
+    console.log(`[Server] Database: ${dbConnected ? 'PostgreSQL connected' : 'Using in-memory storage'}`);
+    
+    // Initialize cache
+    const cacheConnected = await initCache();
+    console.log(`[Server] Cache: ${cacheConnected ? 'Redis connected' : 'Using in-memory cache'}`);
+    
+    // Check OpenAI
+    console.log(`[Server] OpenAI API Key: ${process.env.OPENAI_API_KEY ? 'Configured ✓' : 'Not set ✗'}`);
+    
+    // Start HTTP server
+    server = app.listen(PORT, HOST, () => {
+      console.log(`[Server] Running on http://${HOST}:${PORT}`);
+      console.log('[Server] Ready to accept connections');
+    });
+    
+    // Set server timeout for long-running AI requests
+    server.timeout = 120000; // 2 minutes
+    server.keepAliveTimeout = 65000; // Slightly higher than ALB timeout
+    server.headersTimeout = 66000;
+    
+  } catch (error) {
+    console.error('[Server] Failed to start:', error);
+    process.exit(1);
+  }
+}
+
+// Start the server
+startServer();

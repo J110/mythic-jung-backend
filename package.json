@@ -1,7 +1,7 @@
 {
   "name": "mythic-jung-backend",
-  "version": "1.0.0",
-  "description": "Backend API for Mythic Jung Flutter App",
+  "version": "1.1.0",
+  "description": "Backend API for Mythic Jung Flutter App - Production Ready",
   "main": "src/server.js",
   "type": "module",
   "engines": {
@@ -10,20 +10,32 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "postinstall": "prisma generate || echo 'Prisma generate skipped'"
   },
   "keywords": [
     "jung",
     "archetypes",
-    "api"
+    "api",
+    "psychology"
   ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
+    "@prisma/client": "^7.2.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "openai": "^4.20.1"
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.2.1",
+    "ioredis": "^5.9.1",
+    "openai": "^4.20.1",
+    "p-queue": "^9.1.0",
+    "prisma": "^7.2.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

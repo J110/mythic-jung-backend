@@ -1,10 +1,8 @@
 import express from 'express';
-import { memoryStore } from '../storage/memoryStore.js';
+import { db } from '../storage/database.js';
 
 export const profileRouter = express.Router();
 
-// For now, we'll use a default user ID
-// In production, implement proper authentication
 const getUserId = (req) => {
   return req.headers['x-user-id'] || 'default-user';
 };
@@ -25,11 +23,10 @@ profileRouter.post('/', async (req, res, next) => {
       lastUpdated: new Date().toISOString(),
     };
 
-    memoryStore.saveProfile(userId, profile);
+    await db.saveProfile(userId, profile);
     
     // Invalidate cached output when characters change
-    // This ensures regeneration happens with new character selection
-    memoryStore.clearOutput(userId);
+    await db.clearMeOutput(userId);
 
     console.log(`Profile updated for user ${userId} with ${characters.length} characters`);
     res.json({ success: true, profile });
@@ -42,7 +39,7 @@ profileRouter.post('/', async (req, res, next) => {
 profileRouter.get('/', async (req, res, next) => {
   try {
     const userId = getUserId(req);
-    const profile = memoryStore.getProfile(userId);
+    const profile = await db.getProfile(userId);
 
     if (!profile) {
       return res.status(404).json({ error: 'Profile not found' });

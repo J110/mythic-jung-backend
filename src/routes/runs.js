@@ -11,7 +11,7 @@
  */
 
 import express from 'express';
-import { memoryStore } from '../storage/memoryStore.js';
+import { db } from '../storage/database.js';
 import {
   createPsycheModel,
   createRelationshipPsycheModel,
@@ -28,65 +28,6 @@ import { computeConstellation, computeRelationshipConstellation } from '../servi
 import { discoverCharacterProfiles } from '../services/characterDiscoveryEngine.js';
 
 export const runsRouter = express.Router();
-
-// In-memory run storage (replace with DB in production)
-const runStore = {
-  // userId_context -> { latestRunId, runs: Map<runId, PsycheModel> }
-  userRuns: new Map(),
-};
-
-/**
- * Get or create user run store
- */
-function getUserRunStore(userId, context) {
-  const key = `${userId}_${context}`;
-  if (!runStore.userRuns.has(key)) {
-    runStore.userRuns.set(key, {
-      latestRunId: null,
-      runs: new Map(),
-    });
-  }
-  return runStore.userRuns.get(key);
-}
-
-/**
- * Save a run
- */
-function saveRun(userId, context, psycheModel) {
-  const store = getUserRunStore(userId, context);
-  store.runs.set(psycheModel.runId, psycheModel);
-  store.latestRunId = psycheModel.runId;
-  console.log(`[Runs] Saved run ${psycheModel.runId} for ${userId}/${context}`);
-}
-
-/**
- * Get latest run
- */
-function getLatestRun(userId, context) {
-  const store = getUserRunStore(userId, context);
-  if (!store.latestRunId) return null;
-  return store.runs.get(store.latestRunId) || null;
-}
-
-/**
- * Get run by ID
- */
-function getRun(userId, context, runId) {
-  const store = getUserRunStore(userId, context);
-  return store.runs.get(runId) || null;
-}
-
-/**
- * Check if inputs have changed since last run
- */
-function haveInputsChanged(lastRun, currentHashes) {
-  if (!lastRun) return true;
-  
-  const lastHashes = lastRun.inputHashes || {};
-  return Object.keys(currentHashes).some(key => 
-    currentHashes[key] !== lastHashes[key]
-  );
-}
 
 /**
  * POST /v1/runs/generate
@@ -109,8 +50,8 @@ runsRouter.post('/generate', async (req, res) => {
     if (context === 'ME') {
       // === ME CONTEXT ===
       // USE EXISTING OUTPUT as the source of truth
-      const existingOutput = memoryStore.getOutput(userId);
-      const userData = memoryStore.getUserData(userId);
+      const existingOutput = await db.getMeOutput(userId);
+      const userData = await db.getUserData(userId);
       
       if (!existingOutput || !existingOutput.selfModel) {
         return res.status(400).json({
@@ -126,7 +67,7 @@ runsRouter.post('/generate', async (req, res) => {
       };
       
       // Check if we can use cached run
-      const lastRun = getLatestRun(userId, 'ME');
+      const lastRun = await db.getLatestRun(userId, 'ME');
       if (!force && lastRun && !haveInputsChanged(lastRun, inputHashes)) {
         console.log(`[Runs] Returning cached run ${lastRun.runId}`);
         return res.json({
@@ -162,10 +103,11 @@ runsRouter.post('/generate', async (req, res) => {
       
       // Compute constellation (motifs only)
       console.log('[Runs] Computing constellation...');
+      const tempResonanceData = await db.getTempResonanceData(userId);
       const constellation = computeConstellation(
         selfModel,
         characterProfiles,
-        memoryStore.getTempResonanceData(userId),
+        tempResonanceData,
         userData.assessments || []
       );
       
@@ -191,10 +133,10 @@ runsRouter.post('/generate', async (req, res) => {
       }
       
       // Save
-      saveRun(userId, 'ME', psycheModel);
+      await db.saveRun(userId, 'ME', psycheModel);
       
       // Update output with psycheModelRunId reference
-      memoryStore.saveOutput(userId, {
+      await db.saveMeOutput(userId, {
         ...existingOutput,
         psycheModelRunId: psycheModel.runId,
       });
@@ -207,7 +149,7 @@ runsRouter.post('/generate', async (req, res) => {
     } else if (context === 'REL') {
       // === RELATIONSHIP CONTEXT ===
       // USE EXISTING RELATIONSHIP OUTPUT as the source of truth
-      const existingRelOutput = memoryStore.getRelationshipOutput(userId);
+      const existingRelOutput = await db.getRelationshipOutput(userId);
       
       if (!existingRelOutput) {
         return res.status(400).json({
@@ -222,7 +164,7 @@ runsRouter.post('/generate', async (req, res) => {
       };
       
       // Check cached
-      const lastRun = getLatestRun(userId, 'REL');
+      const lastRun = await db.getLatestRun(userId, 'REL');
       if (!force && lastRun && !haveInputsChanged(lastRun, inputHashes)) {
         console.log(`[Runs] Returning cached REL run ${lastRun.runId}`);
         return res.json({
@@ -253,7 +195,7 @@ runsRouter.post('/generate', async (req, res) => {
       
       // Get Me PsycheModel for relationship analysis
       let meConstellation = null;
-      const meRun = getLatestRun(userId, 'ME');
+      const meRun = await db.getLatestRun(userId, 'ME');
       if (meRun) {
         meConstellation = {
           motifs: {
@@ -303,10 +245,10 @@ runsRouter.post('/generate', async (req, res) => {
       }
       
       // Save
-      saveRun(userId, 'REL', psycheModel);
+      await db.saveRun(userId, 'REL', psycheModel);
       
       // Update relationship output with psycheModelRunId
-      memoryStore.saveRelationshipOutput(userId, {
+      await db.saveRelationshipOutput(userId, {
         ...existingRelOutput,
         psycheModelRunId: psycheModel.runId,
       });
@@ -337,12 +279,12 @@ runsRouter.post('/generate', async (req, res) => {
  * 
  * Query: ?context=ME|REL
  */
-runsRouter.get('/latest', (req, res) => {
+runsRouter.get('/latest', async (req, res) => {
   try {
     const userId = req.headers['x-user-id'] || 'default-user';
     const context = req.query.context || 'ME';
     
-    const latestRun = getLatestRun(userId, context);
+    const latestRun = await db.getLatestRun(userId, context);
     
     if (!latestRun) {
       return res.status(404).json({
@@ -368,18 +310,18 @@ runsRouter.get('/latest', (req, res) => {
  * 
  * Fetch the full PsycheModel for a run
  */
-runsRouter.get('/:runId/psyche-model', (req, res) => {
+runsRouter.get('/:runId/psyche-model', async (req, res) => {
   try {
     const userId = req.headers['x-user-id'] || 'default-user';
     const { runId } = req.params;
     const context = req.query.context || 'ME';
     
-    const run = getRun(userId, context, runId);
+    const run = await db.getRun(userId, context, runId);
     
     if (!run) {
       // Try other context
       const otherContext = context === 'ME' ? 'REL' : 'ME';
-      const otherRun = getRun(userId, otherContext, runId);
+      const otherRun = await db.getRun(userId, otherContext, runId);
       
       if (otherRun) {
         return res.json(otherRun);
@@ -398,6 +340,18 @@ runsRouter.get('/:runId/psyche-model', (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 });
+
+/**
+ * Check if inputs have changed since last run
+ */
+function haveInputsChanged(lastRun, currentHashes) {
+  if (!lastRun) return true;
+  
+  const lastHashes = lastRun.inputHashes || {};
+  return Object.keys(currentHashes).some(key => 
+    currentHashes[key] !== lastHashes[key]
+  );
+}
 
 /**
  * Extract structural positions from synthesis output

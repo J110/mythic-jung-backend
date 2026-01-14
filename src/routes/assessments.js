@@ -1,5 +1,5 @@
 import express from 'express';
-import { memoryStore } from '../storage/memoryStore.js';
+import { db } from '../storage/database.js';
 import { getAllQuestions, getQuestionsByType, getQuestionById } from '../data/assessmentQuestions.js';
 
 export const assessmentRouter = express.Router();
@@ -20,11 +20,10 @@ assessmentRouter.post('/answer', async (req, res, next) => {
       });
     }
 
-    memoryStore.saveAssessmentAnswer(userId, answer);
+    await db.saveAssessmentAnswer(userId, answer);
     
     // Invalidate cached output when assessment answers change
-    // This ensures regeneration happens with new answers
-    memoryStore.clearOutput(userId);
+    await db.clearMeOutput(userId);
 
     console.log(`Assessment answer saved for user ${userId}: ${answer.assessmentType}/${answer.questionId}`);
     res.json({ success: true, answer });
@@ -37,7 +36,7 @@ assessmentRouter.post('/answer', async (req, res, next) => {
 assessmentRouter.get('/', async (req, res, next) => {
   try {
     const userId = getUserId(req);
-    const answers = memoryStore.getAssessmentAnswers(userId);
+    const answers = await db.getAssessmentAnswers(userId);
 
     res.json({ answers });
   } catch (error) {

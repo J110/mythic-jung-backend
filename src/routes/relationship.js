@@ -1,6 +1,7 @@
 import express from 'express';
-import { memoryStore } from '../storage/memoryStore.js';
+import { db } from '../storage/database.js';
 import { generateRelationshipOutput, clearRelationshipCache } from '../services/relationshipEngine.js';
+import { queueAIRequest, AI_PRIORITY } from '../services/aiQueue.js';
 
 export const relationshipRouter = express.Router();
 
@@ -40,10 +41,10 @@ relationshipRouter.post('/set', async (req, res, next) => {
       updatedAt: new Date().toISOString(),
     };
 
-    memoryStore.saveRelationshipSet(userId, relationshipSet);
+    await db.saveRelationshipSet(userId, relationshipSet);
     
     // Clear cached output when characters change
-    memoryStore.clearRelationshipOutput(userId);
+    await db.clearRelationshipOutput(userId);
 
     console.log(`[Relationship] Set saved for user ${userId}: enabled=${enabled}, type=${relationshipType}, characters=${otherCharacterInputs?.length || 0}`);
     
@@ -59,7 +60,7 @@ relationshipRouter.post('/set', async (req, res, next) => {
 relationshipRouter.get('/set', async (req, res, next) => {
   try {
     const userId = getUserId(req);
-    const relationshipSet = memoryStore.getRelationshipSet(userId);
+    const relationshipSet = await db.getRelationshipSet(userId);
 
     if (!relationshipSet) {
       return res.status(404).json({ error: 'Relationship set not found' });
@@ -77,7 +78,7 @@ relationshipRouter.get('/set', async (req, res, next) => {
 relationshipRouter.get('/output', async (req, res, next) => {
   try {
     const userId = getUserId(req);
-    const output = memoryStore.getRelationshipOutput(userId);
+    const output = await db.getRelationshipOutput(userId);
 
     if (!output) {
       return res.status(404).json({ error: 'Relationship output not found' });
@@ -97,7 +98,7 @@ relationshipRouter.post('/regenerate', async (req, res, next) => {
     const userId = getUserId(req);
     const { force = false, moduleKeys = null } = req.body;
 
-    const relationshipSet = memoryStore.getRelationshipSet(userId);
+    const relationshipSet = await db.getRelationshipSet(userId);
     
     if (!relationshipSet || !relationshipSet.enabled) {
       return res.status(400).json({ 
@@ -115,7 +116,7 @@ relationshipRouter.post('/regenerate', async (req, res, next) => {
 
     // Check for cached output unless force regeneration
     if (!force) {
-      const cached = memoryStore.getRelationshipOutput(userId);
+      const cached = await db.getRelationshipOutput(userId);
       if (cached) {
         console.log(`[Relationship] Returning cached output for user ${userId}`);
         return res.json(cached);
@@ -123,29 +124,23 @@ relationshipRouter.post('/regenerate', async (req, res, next) => {
     } else {
       // Force regeneration - clear all caches
       clearRelationshipCache();
-      memoryStore.clearRelationshipOutput(userId);
+      await db.clearRelationshipOutput(userId);
       console.log(`[Relationship] Force regeneration - caches cleared for user ${userId}`);
     }
 
     console.log(`[Relationship] Generating output for user ${userId} (v2 engine)...`);
 
     // NOTE: Relationship output is INDEPENDENT from Me output
-    // We do NOT use meOutput.selfModel to avoid cross-dependency issues
-    // where Me output changes would affect relationship output
-    // 
-    // If comparison features are needed in the future, they should be:
-    // 1. Computed separately and stored with the relationship output
-    // 2. OR requested via a separate comparison endpoint
     const meData = {
-      profile: memoryStore.getProfile(userId),
+      profile: await db.getProfile(userId),
       selfModel: null, // Intentionally null - relationship is independent
-      assessments: memoryStore.getAssessmentAnswers(userId),
+      assessments: await db.getAssessmentAnswers(userId),
     };
     
     console.log(`[Relationship] Using independent mode (no Me output dependency)`);
 
-    // Get pre-recognized characters from resonance flow (prevents re-recognition)
-    const preRecognizedCharacters = memoryStore.getRelationshipCharacterReferences(userId);
+    // Get pre-recognized characters from resonance flow
+    const preRecognizedCharacters = relationshipSet.recognizedCharacters || [];
     const referenceHints = relationshipSet.referenceHints || {};
     
     console.log(`[Relationship] Pre-recognized characters: ${preRecognizedCharacters.length}`);
@@ -153,19 +148,22 @@ relationshipRouter.post('/regenerate', async (req, res, next) => {
       console.log(`[Relationship] Using pre-recognized: ${preRecognizedCharacters.map(c => c.canonical?.name || c.input).join(', ')}`);
     }
 
-    // Generate relationship output with pre-recognized characters
-    const output = await generateRelationshipOutput(
-      relationshipSet,
-      meData,
-      { 
-        moduleKeys,
-        preRecognizedCharacters: preRecognizedCharacters.length >= 4 ? preRecognizedCharacters : null,
-        referenceHints,
-      }
+    // Generate relationship output (queued to prevent rate limits)
+    const output = await queueAIRequest(
+      () => generateRelationshipOutput(
+        relationshipSet,
+        meData,
+        { 
+          moduleKeys,
+          preRecognizedCharacters: preRecognizedCharacters.length >= 4 ? preRecognizedCharacters : null,
+          referenceHints,
+        }
+      ),
+      { priority: AI_PRIORITY.NORMAL }
     );
 
     // Cache the output
-    memoryStore.saveRelationshipOutput(userId, output);
+    await db.saveRelationshipOutput(userId, output);
     
     console.log(`[Relationship] Output generated and cached for user ${userId}`);
     res.json(output);
@@ -191,7 +189,7 @@ relationshipRouter.post('/regenerate', async (req, res, next) => {
 relationshipRouter.delete('/set', async (req, res, next) => {
   try {
     const userId = getUserId(req);
-    memoryStore.clearRelationshipSet(userId);
+    await db.clearRelationshipSet(userId);
     
     console.log(`[Relationship] Cleared for user ${userId}`);
     res.json({ success: true });
@@ -211,7 +209,7 @@ relationshipRouter.post('/clear-cache', async (req, res, next) => {
     clearRelationshipCache();
     
     // Clear stored output
-    memoryStore.clearRelationshipOutput(userId);
+    await db.clearRelationshipOutput(userId);
     
     console.log(`[Relationship] All caches cleared for user ${userId}`);
     res.json({ success: true, message: 'All relationship caches cleared' });
