@@ -31,6 +31,7 @@ archetypesRouter.get('/me/archetypes', async (req, res, next) => {
   try {
     const userId = getUserId(req);
     console.log(`[Archetypes] GET /me/archetypes for user ${userId}`);
+    console.log(`[Archetypes] Request headers X-User-Id: ${req.headers['x-user-id']}`);
     
     // Check cache first
     const cacheKey = `me_${userId}`;

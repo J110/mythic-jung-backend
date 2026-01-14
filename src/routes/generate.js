@@ -50,7 +50,16 @@ generateRouter.post('/', async (req, res, next) => {
     await db.saveMeOutput(userId, output);
 
     console.log(`Output generated and cached for user ${userId}`);
+    
+    // Log response details
+    const responseJson = JSON.stringify(output);
+    console.log(`[Generate] Response size: ${responseJson.length} bytes`);
+    console.log(`[Generate] Output keys: ${Object.keys(output).join(', ')}`);
+    console.log(`[Generate] Has constellation: ${!!output.constellation}`);
+    console.log(`[Generate] Sending response...`);
+    
     res.json(output);
+    console.log(`[Generate] Response sent successfully`);
   } catch (error) {
     console.error('Generation error:', error);
     console.error('Error message:', error.message);
