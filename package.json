@@ -16,7 +16,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate || echo 'Prisma generate skipped'"
+    "postinstall": "prisma generate && prisma db push --accept-data-loss || echo 'Prisma setup skipped'"
   },
   "keywords": [
     "jung",
