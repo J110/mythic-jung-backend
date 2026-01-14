@@ -42,6 +42,12 @@ export function clearRelationshipCache() {
 export async function generateRelationshipOutput(relationshipSet, meData = {}, options = {}) {
   console.log('[RelationshipEngine] Starting generation pipeline...');
   
+  const { onProgress } = options;
+  const reportProgress = (step, label) => {
+    console.log(`[RelationshipEngine] Step ${step}: ${label}`);
+    if (onProgress) onProgress(step, label);
+  };
+  
   const { relationshipType, otherCharacterInputs } = relationshipSet;
   
   // Create cache key
@@ -58,6 +64,7 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
   
   // Step 1: Use pre-recognized characters if available (from resonance flow)
   // This prevents re-recognition which would lose reference information
+  reportProgress(1, 'Recognizing partner characters...');
   if (options.preRecognizedCharacters && options.preRecognizedCharacters.length >= 4) {
     console.log('[RelationshipEngine] Step 1: Using pre-recognized characters (skipping re-recognition)');
     canonicals = options.preRecognizedCharacters.map(c => c.canonical || c);
@@ -87,7 +94,7 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
   console.log(`[RelationshipEngine] Canonical names: ${canonicals.map(c => c.name).join(', ')}`);
   
   // Step 2: Discover character profiles
-  console.log('[RelationshipEngine] Step 2: Character Discovery...');
+  reportProgress(2, 'Discovering partner character profiles...');
   const otherProfiles = await discoverCharacterProfiles(canonicals);
   
   // Log character names for debugging
@@ -96,12 +103,12 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
   console.log(`[RelationshipEngine] Characters: ${characterNames.join(', ')}`);
   
   // Step 3: Build OtherSelfModel (synthesis without assessments)
-  console.log('[RelationshipEngine] Step 3: Building OtherSelfModel...');
+  reportProgress(3, 'Building psychological model...');
   const otherSelfModel = synthesizeSelfModel(otherProfiles, []);
   console.log('[RelationshipEngine] Step 3 complete');
   
   // Step 4: Build RelationshipModel (deterministic)
-  console.log('[RelationshipEngine] Step 4: Building RelationshipModel...');
+  reportProgress(4, 'Analyzing relationship dynamics...');
   const relationshipModel = buildRelationshipModel(
     otherSelfModel,
     otherProfiles,
@@ -112,7 +119,7 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
   console.log('[RelationshipEngine] Step 4 complete');
   
   // Step 5: Generate RelationshipNarrative
-  console.log('[RelationshipEngine] Step 5: Generating Narrative...');
+  reportProgress(5, 'Generating relationship narrative...');
   const narrative = await generateRelationshipNarrative(
     relationshipModel,
     otherProfiles,
@@ -122,7 +129,7 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
   console.log('[RelationshipEngine] Step 5 complete');
   
   // Step 6: Generate RelationshipExamples
-  console.log('[RelationshipEngine] Step 6: Generating Examples...');
+  reportProgress(6, 'Finding relationship examples...');
   const examples = await generateRelationshipExamples(
     relationshipModel,
     otherProfiles,
@@ -132,7 +139,7 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
   console.log('[RelationshipEngine] Step 6 complete');
   
   // Step 7: Generate What-If Scenarios (NEW)
-  console.log('[RelationshipEngine] Step 7: Generating What-If Scenarios...');
+  reportProgress(7, 'Generating what-if scenarios...');
   const whatIfScenarios = await generateWhatIfScenarios(
     relationshipModel,
     otherProfiles,
@@ -142,7 +149,7 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
   console.log('[RelationshipEngine] Step 7 complete');
   
   // Step 8: Generate Ease Zones and Rupture Loops (now async with AI)
-  console.log('[RelationshipEngine] Step 8: Generating Ease/Rupture Zones...');
+  reportProgress(8, 'Analyzing ease zones and rupture loops...');
   const [easeZones, ruptureLoops] = await Promise.all([
     calculateEaseZones(relationshipModel, otherProfiles, meData),
     calculateRuptureLoops(relationshipModel, otherProfiles, meData),
@@ -150,7 +157,7 @@ export async function generateRelationshipOutput(relationshipSet, meData = {}, o
   console.log('[RelationshipEngine] Step 8 complete');
   
   // Step 9: Compute archetype constellation (deterministic)
-  console.log('[RelationshipEngine] Step 9: Computing archetype constellations...');
+  reportProgress(9, 'Computing archetype constellations...');
   let constellation = null;
   try {
     // Compute partner constellation

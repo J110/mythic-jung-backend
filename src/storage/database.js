@@ -385,20 +385,51 @@ export const db = {
     if (useDatabase) {
       await this.ensureUser(userId);
       
+      console.log(`[Database] Saving relationship output for ${userId}`);
+      console.log(`[Database] - constellation exists: ${!!output.constellation}`);
+      console.log(`[Database] - narrative exists: ${!!output.narrative}`);
+      console.log(`[Database] - examples exists: ${!!output.examples}`);
+      
       return prisma.relationshipOutput.upsert({
         where: { userId },
         update: {
+          // Legacy fields
           dynamics: output.dynamics || null,
           compatibility: output.compatibility || null,
           growth: output.growth || null,
           whatIf: output.whatIf || null,
+          // V2 fields - comprehensive relationship output
+          myth: output.myth || null,
+          narrative: output.narrative || null,
+          examples: output.examples || null,
+          relationshipModel: output.relationshipModel || null,
+          whatIfScenarios: output.whatIfScenarios || null,
+          easeZones: output.easeZones || null,
+          ruptureLoops: output.ruptureLoops || null,
+          constellation: output.constellation || null,
+          otherSelfModel: output.otherSelfModel || null,
+          otherProfiles: output.otherProfiles || null,
+          meta: output.meta || null,
         },
         create: {
           userId,
+          // Legacy fields
           dynamics: output.dynamics || null,
           compatibility: output.compatibility || null,
           growth: output.growth || null,
           whatIf: output.whatIf || null,
+          // V2 fields - comprehensive relationship output
+          myth: output.myth || null,
+          narrative: output.narrative || null,
+          examples: output.examples || null,
+          relationshipModel: output.relationshipModel || null,
+          whatIfScenarios: output.whatIfScenarios || null,
+          easeZones: output.easeZones || null,
+          ruptureLoops: output.ruptureLoops || null,
+          constellation: output.constellation || null,
+          otherSelfModel: output.otherSelfModel || null,
+          otherProfiles: output.otherProfiles || null,
+          meta: output.meta || null,
         },
       });
     } else {
@@ -412,11 +443,27 @@ export const db = {
       const output = await prisma.relationshipOutput.findUnique({ where: { userId } });
       if (!output) return null;
       
+      console.log(`[Database] Loaded relationship output for ${userId}`);
+      console.log(`[Database] - constellation exists: ${!!output.constellation}`);
+      
       return {
+        // Legacy fields
         dynamics: output.dynamics,
         compatibility: output.compatibility,
         growth: output.growth,
         whatIf: output.whatIf,
+        // V2 fields
+        myth: output.myth,
+        narrative: output.narrative,
+        examples: output.examples,
+        relationshipModel: output.relationshipModel,
+        whatIfScenarios: output.whatIfScenarios,
+        easeZones: output.easeZones,
+        ruptureLoops: output.ruptureLoops,
+        constellation: output.constellation,
+        otherSelfModel: output.otherSelfModel,
+        otherProfiles: output.otherProfiles,
+        meta: output.meta,
         cachedAt: output.generatedAt,
       };
     } else {

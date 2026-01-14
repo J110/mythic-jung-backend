@@ -176,8 +176,6 @@ relationshipRouter.post('/regenerate', async (req, res, next) => {
  */
 async function runRelationshipGenerationInBackground(jobId, userId, relationshipSet, moduleKeys) {
   try {
-    updateJobProgress(jobId, 1, 'Preparing relationship analysis...');
-    
     // NOTE: Relationship output is INDEPENDENT from Me output
     const meData = {
       profile: await db.getProfile(userId),
@@ -192,10 +190,9 @@ async function runRelationshipGenerationInBackground(jobId, userId, relationship
     const referenceHints = relationshipSet.referenceHints || {};
     
     console.log(`[Relationship] Job ${jobId}: Pre-recognized characters: ${preRecognizedCharacters.length}`);
-    
-    updateJobProgress(jobId, 2, 'Recognizing partner characters...');
 
     // Generate relationship output with progress callback
+    // Relationship engine has 9 steps total
     const output = await queueAIRequest(
       () => generateRelationshipOutput(
         relationshipSet,
@@ -205,9 +202,8 @@ async function runRelationshipGenerationInBackground(jobId, userId, relationship
           preRecognizedCharacters: preRecognizedCharacters.length >= 4 ? preRecognizedCharacters : null,
           referenceHints,
           onProgress: (step, label) => {
-            // Map relationship steps (starting from step 3)
-            const mappedStep = 2 + step; // Steps 3-6
-            updateJobProgress(jobId, Math.min(mappedStep, 6), label);
+            // Relationship engine reports steps 1-9
+            updateJobProgress(jobId, step, label);
           },
         }
       ),

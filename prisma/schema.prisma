@@ -147,10 +147,23 @@ model RelationshipOutput {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   // Full relationship output (JSON for flexibility)
-  dynamics     Json?
-  compatibility Json?
-  growth       Json?
-  whatIf       Json?
+  dynamics         Json?
+  compatibility    Json?
+  growth           Json?
+  whatIf           Json?
+  
+  // V2 fields - comprehensive relationship output
+  myth               Json?   // RelationshipMyth
+  narrative          Json?   // RelationshipNarrative
+  examples           Json?   // RelationshipExamples
+  relationshipModel  Json?   // RelationshipModel
+  whatIfScenarios    Json?   // What-if scenarios array
+  easeZones          Json?   // Ease zones
+  ruptureLoops       Json?   // Rupture loops
+  constellation      Json?   // Archetype constellation
+  otherSelfModel     Json?   // Partner's self model
+  otherProfiles      Json?   // Partner's character profiles
+  meta               Json?   // Metadata
   
   generatedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
