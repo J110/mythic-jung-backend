@@ -128,7 +128,7 @@ async function recognizeCharactersBatch(inputs, referenceHints = {}) {
       return `${i+1}. Input: "${name}"`;
     });
     
-    // Enhanced prompt - AI-only recognition with clear examples
+    // Enhanced prompt - AI-only recognition with global cinema support
     const prompt = `You are recognizing ${inputs.length} inputs. Return ONE result for EACH input, in the SAME ORDER.
 
 INPUTS:
@@ -137,60 +137,70 @@ ${inputsWithRefs.join('\n')}
 CRITICAL RULES:
 
 1. RECOGNIZE FAMOUS FICTIONAL CHARACTERS with HIGH CONFIDENCE (0.85+):
+   
+   HOLLYWOOD/WESTERN:
    - Jack Reacher, James Bond, Sherlock Holmes, Batman, Spider-Man, Superman
    - Gregory House (House M.D.), Rick Sanchez (Rick and Morty), Don Draper (Mad Men)
    - Walter White (Breaking Bad), Tony Soprano (The Sopranos)
-   - Trinity (The Matrix), Lara Axelrod (Billions), Bobby Axelrod (Billions)
-   - Patch Adams, Allie Hamilton (The Notebook)
+   - Trinity (The Matrix), Bobby Axelrod (Billions), Forrest Gump
    
-2. RECOGNIZE REAL-LIFE PUBLIC FIGURES with HIGH CONFIDENCE (0.85+):
-   These are real people who can be analyzed for their psychological patterns:
+   INDIAN CINEMA (Bollywood, Tollywood, Kollywood, Kannada, etc.):
+   - Rocky (KGF: Chapter 1 & 2) - Kannada action film hero played by Yash
+   - Raya/Arjun (Toxic 2025) - Kannada film character played by Yash
+   - Kabir Singh (Kabir Singh) - Hindi film
+   - Pushpa Raj (Pushpa: The Rise) - Telugu film character played by Allu Arjun
+   - Rancho/Phunsukh Wangdu (3 Idiots) - character played by Aamir Khan
+   - Gabbar Singh (Sholay) - Classic villain
+   - Baahubali/Amarendra (Baahubali series) - Telugu epic
+   - Don (Don series) - SRK's character
+   - Simran (DDLJ), Geet (Jab We Met), Rani (Queen)
+   - Bheem, Ram (RRR) - Telugu epic characters
+   - Arjun Reddy (Arjun Reddy) - Telugu film
    
-   CONTEMPORARY PUBLIC FIGURES:
-   - Politicians: Donald Trump, Barack Obama, Joe Biden, Vladimir Putin, Xi Jinping, Narendra Modi, Angela Merkel
-   - Business: Elon Musk, Jeff Bezos, Bill Gates, Warren Buffett, Mark Zuckerberg, Steve Jobs
-   - Entertainment: Oprah Winfrey, Kim Kardashian, Taylor Swift, Beyoncé, Kanye West
-   - Sports: Michael Jordan, LeBron James, Cristiano Ronaldo, Lionel Messi, Serena Williams
+   KOREAN/ASIAN:
+   - Park Sae-ro-yi (Itaewon Class), Cho Sang-woo (Squid Game)
+   - Kang Sae-byeok (Squid Game)
    
-   For these: recognized=true, confidence=0.90, medium="real-life", franchise="Public Figure"
+   ANIME:
+   - Goku, Naruto, Luffy, Light Yagami, Eren Yeager
    
-   HISTORICAL FIGURES:
-   - Philosophers: Plato, Aristotle, Socrates, Confucius, Nietzsche, Kant, Marx
-   - Leaders: Alexander the Great, Julius Caesar, Napoleon, Abraham Lincoln, Martin Luther King Jr., Gandhi, Cleopatra
-   - Scientists: Einstein, Newton, Darwin, Marie Curie, Galileo, Tesla
-   - Artists: Leonardo da Vinci, Michelangelo, Shakespeare, Mozart, Beethoven
+2. RECOGNIZE REAL-LIFE PUBLIC FIGURES with HIGH CONFIDENCE (0.90+):
+   - Politicians: Donald Trump, Narendra Modi, Barack Obama
+   - Business: Elon Musk, Mukesh Ambani, Ratan Tata
+   - Sports: Virat Kohli, MS Dhoni, Sachin Tendulkar, Lionel Messi
+   - Historical: Plato, Gandhi, Einstein, Abraham Lincoln
    
-   For these: recognized=true, confidence=0.90, medium="historical", franchise="Historical Figure"
+   For these: recognized=true, confidence=0.90, medium="real-life" or "historical"
+   
+3. WHEN REFERENCE IS PROVIDED - BE GENEROUS:
+   - "Rocky" + "KGF" → CHARACTER: "Rocky" from KGF, confidence=0.95
+   - "Raya" + "Toxic" → CHARACTER: "Raya" from Toxic (2025 Kannada film), confidence=0.90
+   - "Pushpa" + "Pushpa" → CHARACTER: "Pushpa Raj", confidence=0.95
+   - TRUST the reference! If user says "from KGF" or "from Toxic", believe them
+   
+4. ACTOR NAMES with Reference → Return CHARACTER:
+   - "Yash" + "KGF" → CHARACTER: "Rocky" (inputWasActor=true)
+   - "Allu Arjun" + "Pushpa" → CHARACTER: "Pushpa Raj" (inputWasActor=true)
+   - "Zooey Deschanel" + "Yes Man" → CHARACTER: "Allison" (inputWasActor=true)
 
-3. ACTOR NAMES with Reference:
-   If input is an ACTOR NAME with a Reference, return the CHARACTER they played:
-   - "Zooey Deschanel" + Reference "Yes Man" → CHARACTER: "Allison" (not the actor!)
-   - "Priyanka Chopra" + Reference "Don" → CHARACTER: "Roma"
-   
-   Set: inputWasActor=true, name=CHARACTER_NAME
-   
-   If you DON'T KNOW the character, set:
-   - recognized=false, needsClarification=true, clarificationReason="actor_character_unknown"
+5. REGIONAL CINEMA - HIGH PRIORITY:
+   - Indian cinema (Hindi, Telugu, Tamil, Kannada, Malayalam) is MASSIVELY popular
+   - When reference matches regional cinema title, set confidence=0.85-0.95
+   - Never reject regional cinema characters just because they're not Hollywood
 
-4. UNCERTAIN INPUTS:
-   If confidence < 0.7 OR you're unsure, set:
-   - needsClarification=true, clarificationReason="low_confidence"
-   
-   DO NOT make up names. Ask for clarification instead.
-
-5. RETURN COMPLETE ARRAY:
+6. RETURN COMPLETE ARRAY:
    You MUST return ${inputs.length} results, one for each input, in the SAME ORDER.
 
 Return valid JSON:
 {
   "characters": [
     {
-      "input": "exact input string from above",
+      "input": "exact input string",
       "recognized": true,
       "needsClarification": false,
       "clarificationReason": null,
-      "name": "Character/Person Name",
-      "franchise": "Source (e.g., 'Mission: Impossible', 'Public Figure', 'Historical Figure')",
+      "name": "Character Name",
+      "franchise": "Source (KGF, Toxic, Mission: Impossible, etc.)",
       "medium": "film/tv/book/real-life/historical",
       "confidence": 0.9,
       "matchesReference": true,
@@ -199,30 +209,42 @@ Return valid JSON:
   ]
 }`;
 
+
     const response = await client.chat.completions.create({
       model: process.env.OPENAI_RECOGNITION_MODEL || 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: `You are a recognition AI. Your task: identify BOTH fictional characters AND real-life public figures.
+        { role: 'system', content: `You are a recognition AI specializing in GLOBAL cinema and public figures.
 
 YOUR CAPABILITIES:
-- You know thousands of fictional characters from popular culture (movies, TV, books, comics)
+- You know fictional characters from GLOBAL cinema including Hollywood, Bollywood, Tollywood, Kollywood, Kannada, Korean, Japanese
 - You know famous real-life public figures (politicians, celebrities, business leaders, athletes)
 - You know historical figures (philosophers, leaders, scientists, artists)
 - You can map actor names to characters when a movie/show reference is provided
-- You ask for clarification when uncertain (never guess)
+- You TRUST user-provided references and recognize characters from regional cinema
 
-FICTIONAL CHARACTERS YOU MUST RECOGNIZE (confidence 0.85+):
-Film: Jack Reacher, James Bond, Trinity (Matrix), Patch Adams, Allie Hamilton
-TV: Gregory House, Rick Sanchez, Don Draper, Lara Axelrod, Bobby Axelrod, Walter White, Tony Soprano
-Comics: Batman, Spider-Man, Superman, Joker
+FICTIONAL CHARACTERS - GLOBAL CINEMA (confidence 0.85+):
 
-REAL-LIFE PUBLIC FIGURES YOU MUST RECOGNIZE (confidence 0.90+):
-Politicians: Donald Trump, Barack Obama, Joe Biden, Vladimir Putin, Xi Jinping, Narendra Modi
-Business: Elon Musk, Jeff Bezos, Bill Gates, Steve Jobs, Mark Zuckerberg
-Entertainment: Oprah Winfrey, Taylor Swift, Beyoncé, Kim Kardashian
-Sports: Michael Jordan, LeBron James, Cristiano Ronaldo, Serena Williams
+HOLLYWOOD: Jack Reacher, James Bond, Trinity (Matrix), Walter White, Tony Soprano, Batman
 
-For real-life figures, use: medium="real-life", franchise="Public Figure"
+INDIAN CINEMA (HIGH PRIORITY - These are massively popular):
+- Rocky (KGF series) - Kannada film protagonist by Yash
+- Raya/Arjun (Toxic 2025) - Kannada film by Yash  
+- Pushpa Raj (Pushpa series) - Telugu film by Allu Arjun
+- Kabir Singh (Kabir Singh) - Hindi film
+- Baahubali (Baahubali series) - Telugu epic
+- Don (Don series), Simran (DDLJ), Geet (Jab We Met)
+- Bheem, Ram (RRR) - Telugu epic
+
+KOREAN: Park Sae-ro-yi, Cho Sang-woo (Squid Game)
+ANIME: Goku, Naruto, Luffy
+
+REAL-LIFE PUBLIC FIGURES (confidence 0.90+):
+- Politicians: Donald Trump, Narendra Modi, Barack Obama
+- Business: Elon Musk, Mukesh Ambani, Ratan Tata
+- Sports: Virat Kohli, MS Dhoni, Cristiano Ronaldo
+- Historical: Plato, Gandhi, Einstein
+
+IMPORTANT: When a reference is provided (like "KGF" or "Toxic"), TRUST IT and recognize the character with high confidence.
 
 HISTORICAL FIGURES YOU MUST RECOGNIZE (confidence 0.90+):
 Philosophers: Plato, Aristotle, Socrates, Confucius, Nietzsche, Kant

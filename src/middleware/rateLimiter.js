@@ -23,6 +23,8 @@ export const generalLimiter = rateLimit({
   legacyHeaders: false,
   // Skip rate limiting for health checks
   skip: (req) => req.path === '/health' || req.path === '/v1/health',
+  // Disable the IPv6 validation warning by using default key generator
+  validate: { xForwardedForHeader: false },
 });
 
 /**
@@ -39,10 +41,8 @@ export const aiLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    // Use userId if available, otherwise IP
-    return req.headers['x-user-id'] || req.ip;
-  },
+  // Use default key generator (handles IPv6 properly)
+  validate: { xForwardedForHeader: false },
 });
 
 /**
@@ -59,7 +59,7 @@ export const recognitionLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.headers['x-user-id'] || req.ip,
+  validate: { xForwardedForHeader: false },
 });
 
 /**
@@ -76,7 +76,7 @@ export const generationLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.headers['x-user-id'] || req.ip,
+  validate: { xForwardedForHeader: false },
 });
 
 /**
@@ -92,7 +92,7 @@ export const toneLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.headers['x-user-id'] || req.ip,
+  validate: { xForwardedForHeader: false },
 });
 
 /**
@@ -109,6 +109,7 @@ export const authLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
 });
 
 // ============================================================================
