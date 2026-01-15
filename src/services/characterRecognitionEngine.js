@@ -271,6 +271,18 @@ When input is an actor name WITH a reference:
 - "Zooey Deschanel" in "Yes Man" → CHARACTER: "Allison"
 - "Priyanka Chopra" in "Don" → CHARACTER: "Roma"
 
+INDIAN ACTORS (Recognize these as ACTORS, not characters):
+- Pooja Hegde, Keerthy Suresh, Samantha Ruth Prabhu, Rashmika Mandanna
+- Nani, Allu Arjun, Yash, Vijay Deverakonda, Ram Charan, Jr NTR, Mahesh Babu
+- N. T. Rama Rao Jr. (same as Jr NTR), Prabhas, Suriya, Dhanush
+- Shah Rukh Khan, Salman Khan, Aamir Khan, Ranbir Kapoor, Ranveer Singh
+- Deepika Padukone, Alia Bhatt, Priyanka Chopra, Kareena Kapoor
+
+For actor names WITHOUT a movie reference:
+- Set recognized=false, inputWasActor=true, clarificationReason="actor_name"
+- Ask user to specify the character name or add a movie reference
+- Example: "Nani" without reference → recognized=false, inputWasActor=true
+
 If you don't know which character the actor played, set needsClarification=true.
 
 KEY RULES:
@@ -279,6 +291,10 @@ KEY RULES:
 3. Set confidence 0.90+ for well-known real-life and historical figures
 4. Set needsClarification=true if confidence < 0.7
 5. NEVER make up names - ask for help instead
+6. ACTOR NAMES: If input is an actor name (not a character), set recognized=false AND inputWasActor=true
+   - Indian actors: Pooja Hegde, Keerthy Suresh, Nani, Jr NTR, Allu Arjun, Yash, Vijay, etc.
+   - Hollywood actors: Tom Cruise, Robert Downey Jr, Zooey Deschanel, etc.
+   - These are ACTORS, not characters - ask user to specify the character name
 
 Return valid JSON with "characters" array containing all results.` },
         { role: 'user', content: prompt },
@@ -400,6 +416,28 @@ Return valid JSON with "characters" array containing all results.` },
       }
 
       if (!match || !match.recognized) {
+        // Check if this is an actor name - if so, return AMBIGUOUS and ask for character name
+        const isActorName = match?.inputWasActor || match?.clarificationReason === 'actor_name' || match?.clarificationReason === 'actor_character_unknown';
+        
+        if (isActorName) {
+          console.log(`[Recognition] Actor name detected: "${input}" - asking for character clarification`);
+          return {
+            input,
+            status: RecognitionStatus.AMBIGUOUS, // AMBIGUOUS so it can proceed to clarification
+            confidence: 0.4,
+            canonical: null,
+            candidates: [],
+            requiredDisambiguation: [
+              match?.clarificationMessage || `"${input}" appears to be an actor/actress name.`,
+              'Please specify which character they played, or add the movie name as a reference.',
+            ],
+            needsClarification: true,
+            clarificationReason: 'actor_name',
+            inputWasActor: true,
+            normalization: { cleanedInput: inputLower, detectedHints: [] },
+          };
+        }
+        
         // AI says not recognized - ask for clarification
         return {
           input,

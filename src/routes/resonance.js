@@ -107,8 +107,12 @@ resonanceRouter.post('/analyze', async (req, res, next) => {
       return result;
     });
     
-    // Check minimum recognized
-    const validCount = recognizedCharacters.filter(c => c.status === 'RECOGNIZED').length;
+    // Check minimum recognized (count RECOGNIZED + AMBIGUOUS as valid, since AMBIGUOUS can be clarified)
+    const recognizedCount = recognizedCharacters.filter(c => c.status === 'RECOGNIZED').length;
+    const ambiguousCount = recognizedCharacters.filter(c => c.status === 'AMBIGUOUS').length;
+    const validCount = recognizedCount + ambiguousCount;
+    
+    console.log(`[Resonance] Recognition counts: ${recognizedCount} recognized, ${ambiguousCount} ambiguous, ${validCount} total valid`);
     
     // Check for STRICT mode failures
     const strictFailures = recognizedCharacters.filter(c => 
@@ -123,6 +127,14 @@ resonanceRouter.post('/analyze', async (req, res, next) => {
       let errorMsg = `Only ${validCount} characters recognized. Need at least 4.`;
       if (strictFailures.length > 0) {
         errorMsg += ` ${strictFailures.length} character(s) not found in their specified reference.`;
+      }
+      
+      // Add hint for actor names
+      const actorInputs = recognizedCharacters.filter(c => 
+        c.status === 'NOT_RECOGNIZED' && (c.inputWasActor || c.clarificationReason === 'actor_name')
+      );
+      if (actorInputs.length > 0) {
+        errorMsg += ' It looks like you entered actor names - please enter the character names instead (e.g., "Rocky" instead of "Yash").';
       }
       
       return res.status(400).json({
