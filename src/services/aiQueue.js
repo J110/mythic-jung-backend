@@ -4,13 +4,14 @@
 
 import PQueue from 'p-queue';
 
-// Configuration
+// Configuration - CONSERVATIVE for multi-user production
 const AI_QUEUE_CONFIG = {
-  // Max concurrent AI requests (OpenAI tier 1 = 60 RPM, tier 2+ = higher)
-  concurrency: 3,
+  // Max concurrent AI requests - keep low to avoid 429 errors
+  concurrency: 2,
   
   // Max requests per interval (rate limiting)
-  intervalCap: 50,
+  // OpenAI tier 1 = 60 RPM, we'll be conservative at 40
+  intervalCap: 40,
   interval: 60 * 1000, // 1 minute
   
   // Timeout per request - increased to 5 minutes for complex generation
@@ -19,6 +20,9 @@ const AI_QUEUE_CONFIG = {
   // Don't throw on timeout - let individual calls handle errors gracefully
   throwOnTimeout: false,
 };
+
+// Track rate limit state
+let rateLimitedUntil = 0;
 
 // Create the queue
 const aiQueue = new PQueue({
@@ -61,7 +65,7 @@ aiQueue.on('idle', () => {
 });
 
 /**
- * Add an AI request to the queue
+ * Add an AI request to the queue with automatic retry on rate limits
  * @param {Function} aiFunction - Async function that makes the AI call
  * @param {Object} options - Queue options
  * @returns {Promise} - Result of the AI function
@@ -71,29 +75,64 @@ export async function queueAIRequest(aiFunction, options = {}) {
   
   const priority = options.priority || 0; // Higher = more priority
   const signal = options.signal; // AbortController signal
+  const maxRetries = options.maxRetries || 3;
   
-  try {
-    const result = await aiQueue.add(aiFunction, {
-      priority,
-      signal,
-    });
-    
-    // If result is undefined due to timeout (throwOnTimeout: false), handle it
-    if (result === undefined) {
-      stats.timedOutRequests++;
-      console.error('[AIQueue] Request may have timed out (returned undefined)');
-      throw new Error('AI request timed out. Please try again.');
-    }
-    
-    return result;
-  } catch (error) {
-    if (error.name === 'TimeoutError') {
-      stats.timedOutRequests++;
-      console.error('[AIQueue] Request timed out:', error.message);
-      throw new Error('AI request timed out. The server is busy, please try again in a moment.');
-    }
-    throw error;
+  // Wait if we're in rate-limited state
+  const now = Date.now();
+  if (rateLimitedUntil > now) {
+    const waitTime = rateLimitedUntil - now;
+    console.log(`[AIQueue] Waiting ${waitTime}ms for rate limit cooldown...`);
+    await sleep(waitTime);
   }
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await aiQueue.add(aiFunction, {
+        priority,
+        signal,
+      });
+      
+      // If result is undefined due to timeout (throwOnTimeout: false), handle it
+      if (result === undefined) {
+        stats.timedOutRequests++;
+        console.error('[AIQueue] Request may have timed out (returned undefined)');
+        throw new Error('AI request timed out. Please try again.');
+      }
+      
+      return result;
+    } catch (error) {
+      if (error.name === 'TimeoutError') {
+        stats.timedOutRequests++;
+        console.error('[AIQueue] Request timed out:', error.message);
+        throw new Error('AI request timed out. The server is busy, please try again in a moment.');
+      }
+      
+      // Handle rate limiting (429)
+      if (error.status === 429 || error.message?.includes('429') || error.message?.includes('rate limit')) {
+        const retryAfter = error.headers?.['retry-after'] || (attempt + 1) * 20; // 20s, 40s, 60s
+        stats.failedRequests++;
+        
+        console.warn(`[AIQueue] Rate limited (429) - attempt ${attempt + 1}/${maxRetries + 1}, waiting ${retryAfter}s...`);
+        
+        // Set global rate limit cooldown
+        rateLimitedUntil = Date.now() + (retryAfter * 1000);
+        
+        if (attempt < maxRetries) {
+          await sleep(retryAfter * 1000);
+          continue;
+        }
+      }
+      
+      throw error;
+    }
+  }
+}
+
+/**
+ * Sleep helper
+ */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
