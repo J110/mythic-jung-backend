@@ -181,7 +181,9 @@ resonanceRouter.post('/analyze', async (req, res, next) => {
       characters: responseCharacters,
       recognitionSummary: {
         total: characterInputs.length,
-        recognized: validCount,
+        recognized: recognizedCount,
+        ambiguous: ambiguousCount,
+        notRecognized: notRecognizedCount,
         needsClarification: responseCharacters.filter(c => c.needsClarification).length,
         withEntryReferences: Object.keys(referenceHints).length,
         referenceMismatches: responseCharacters.filter(c => c.entryReferenceMismatch).length,
