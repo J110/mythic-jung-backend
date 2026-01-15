@@ -266,35 +266,35 @@ Artists: Leonardo da Vinci, Shakespeare, Mozart, Beethoven
 
 For historical figures, use: medium="historical", franchise="Historical Figure"
 
-ACTOR-TO-CHARACTER MAPPING:
-When input is an actor name WITH a reference:
-- "Zooey Deschanel" in "Yes Man" → CHARACTER: "Allison"
-- "Priyanka Chopra" in "Don" → CHARACTER: "Roma"
+ACTORS ARE VALID REAL-LIFE FIGURES:
+Actors/Actresses should be recognized as REAL-LIFE PUBLIC FIGURES (just like politicians, athletes):
+- People relate to actors' public personas, interviews, real-life personalities
+- Recognize them with confidence 0.90+ and medium="real-life", franchise="Actor/Actress"
 
-INDIAN ACTORS (Recognize these as ACTORS, not characters):
+INDIAN ACTORS (Recognize as real-life figures - HIGH PRIORITY):
 - Pooja Hegde, Keerthy Suresh, Samantha Ruth Prabhu, Rashmika Mandanna
 - Nani, Allu Arjun, Yash, Vijay Deverakonda, Ram Charan, Jr NTR, Mahesh Babu
 - N. T. Rama Rao Jr. (same as Jr NTR), Prabhas, Suriya, Dhanush
 - Shah Rukh Khan, Salman Khan, Aamir Khan, Ranbir Kapoor, Ranveer Singh
 - Deepika Padukone, Alia Bhatt, Priyanka Chopra, Kareena Kapoor
 
-For actor names WITHOUT a movie reference:
-- Set recognized=false, inputWasActor=true, clarificationReason="actor_name"
-- Ask user to specify the character name or add a movie reference
-- Example: "Nani" without reference → recognized=false, inputWasActor=true
+For actor names: recognized=true, confidence=0.90, medium="real-life", franchise="Actor/Actress"
 
-If you don't know which character the actor played, set needsClarification=true.
+ACTOR-TO-CHARACTER MAPPING (when reference IS provided):
+- "Zooey Deschanel" in "Yes Man" → CHARACTER: "Allison" (inputWasActor=true)
+- "Priyanka Chopra" in "Don" → CHARACTER: "Roma" (inputWasActor=true)
+- If reference provided, map to the CHARACTER they played in that movie
 
 KEY RULES:
 1. Return ONE result for EACH input, in the SAME ORDER
 2. Set confidence 0.85+ for well-known fictional characters
-3. Set confidence 0.90+ for well-known real-life and historical figures
-4. Set needsClarification=true if confidence < 0.7
-5. NEVER make up names - ask for help instead
-6. ACTOR NAMES: If input is an actor name (not a character), set recognized=false AND inputWasActor=true
+3. Set confidence 0.90+ for well-known real-life and historical figures (including ACTORS)
+4. ACTORS ARE VALID: Recognize actors as real-life public figures (people relate to their personas)
    - Indian actors: Pooja Hegde, Keerthy Suresh, Nani, Jr NTR, Allu Arjun, Yash, Vijay, etc.
    - Hollywood actors: Tom Cruise, Robert Downey Jr, Zooey Deschanel, etc.
-   - These are ACTORS, not characters - ask user to specify the character name
+   - Set recognized=true, confidence=0.90, medium="real-life", franchise="Actor/Actress"
+5. Set needsClarification=true if confidence < 0.7
+6. NEVER make up names - ask for help instead
 
 Return valid JSON with "characters" array containing all results.` },
         { role: 'user', content: prompt },
@@ -416,33 +416,13 @@ Return valid JSON with "characters" array containing all results.` },
       }
 
       if (!match || !match.recognized) {
-        // Check if this is an actor name - if so, return AMBIGUOUS and ask for character name
-        const isActorName = match?.inputWasActor || match?.clarificationReason === 'actor_name' || match?.clarificationReason === 'actor_character_unknown';
-        
-        if (isActorName) {
-          console.log(`[Recognition] Actor name detected: "${input}" - asking for character clarification`);
-          return {
-            input,
-            status: RecognitionStatus.AMBIGUOUS, // AMBIGUOUS so it can proceed to clarification
-            confidence: 0.4,
-            canonical: null,
-            candidates: [],
-            requiredDisambiguation: [
-              match?.clarificationMessage || `"${input}" appears to be an actor/actress name.`,
-              'Please specify which character they played, or add the movie name as a reference.',
-            ],
-            needsClarification: true,
-            clarificationReason: 'actor_name',
-            inputWasActor: true,
-            normalization: { cleanedInput: inputLower, detectedHints: [] },
-          };
-        }
-        
-        // AI says not recognized - ask for clarification
+        // Not recognized - return AMBIGUOUS so user can clarify on clarification page
+        // (Never block - always let users proceed to clarification)
+        console.log(`[Recognition] Not recognized: "${input}" - will ask for clarification`);
         return {
           input,
-          status: RecognitionStatus.NOT_RECOGNIZED,
-          confidence: 0.0,
+          status: RecognitionStatus.AMBIGUOUS, // AMBIGUOUS allows proceeding to clarification
+          confidence: 0.3,
           canonical: null,
           candidates: [],
           requiredDisambiguation: [
@@ -451,6 +431,7 @@ Return valid JSON with "characters" array containing all results.` },
           ],
           needsClarification: true,
           clarificationReason: match?.clarificationReason || 'not_recognized',
+          inputWasActor: match?.inputWasActor || false,
           normalization: { cleanedInput: inputLower, detectedHints: [] },
         };
       }

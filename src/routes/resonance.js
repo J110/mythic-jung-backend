@@ -107,47 +107,15 @@ resonanceRouter.post('/analyze', async (req, res, next) => {
       return result;
     });
     
-    // Check minimum recognized (count RECOGNIZED + AMBIGUOUS as valid, since AMBIGUOUS can be clarified)
+    // Log recognition counts for debugging
     const recognizedCount = recognizedCharacters.filter(c => c.status === 'RECOGNIZED').length;
     const ambiguousCount = recognizedCharacters.filter(c => c.status === 'AMBIGUOUS').length;
-    const validCount = recognizedCount + ambiguousCount;
+    const notRecognizedCount = recognizedCharacters.filter(c => c.status === 'NOT_RECOGNIZED').length;
     
-    console.log(`[Resonance] Recognition counts: ${recognizedCount} recognized, ${ambiguousCount} ambiguous, ${validCount} total valid`);
+    console.log(`[Resonance] Recognition counts: ${recognizedCount} recognized, ${ambiguousCount} ambiguous, ${notRecognizedCount} not recognized`);
     
-    // Check for STRICT mode failures
-    const strictFailures = recognizedCharacters.filter(c => 
-      c.status === 'NOT_RECOGNIZED' && c.failureReason === 'UNRECOGNIZED_IN_REFERENCE'
-    );
-    
-    if (strictFailures.length > 0) {
-      console.log(`[Resonance] STRICT mode failures:`, strictFailures.map(f => f.input));
-    }
-    
-    if (validCount < 4) {
-      let errorMsg = `Only ${validCount} characters recognized. Need at least 4.`;
-      if (strictFailures.length > 0) {
-        errorMsg += ` ${strictFailures.length} character(s) not found in their specified reference.`;
-      }
-      
-      // Add hint for actor names
-      const actorInputs = recognizedCharacters.filter(c => 
-        c.status === 'NOT_RECOGNIZED' && (c.inputWasActor || c.clarificationReason === 'actor_name')
-      );
-      if (actorInputs.length > 0) {
-        errorMsg += ' It looks like you entered actor names - please enter the character names instead (e.g., "Rocky" instead of "Yash").';
-      }
-      
-      return res.status(400).json({
-        error: errorMsg,
-        code: 'INSUFFICIENT_RECOGNIZED',
-        recognitionResult,
-        strictFailures: strictFailures.map(f => ({
-          input: f.input,
-          referenceText: referenceHints[f.input]?.text,
-          message: 'No strong matches found in your reference. Try adding more details (movie name, year, character full name).',
-        })),
-      });
-    }
+    // ALWAYS proceed to clarification - let users fix/clarify on that page
+    // No more blocking errors - clarification page handles everything
     
     // Step 2: Analyze for ambiguity (considering reference hints)
     const ambiguityAnalysis = await analyzeAllCharacters(recognizedCharacters, referenceHints);
