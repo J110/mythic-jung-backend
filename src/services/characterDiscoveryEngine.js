@@ -224,6 +224,14 @@ function createFallbackProfile(canonical) {
   return {
     canonicalId: canonical.canonicalId,
     name: canonical.name,
+    iconicShape: canonical.iconicShape || 'silhouette',
+    canonical: {
+      canonicalId: canonical.canonicalId,
+      name: canonical.name,
+      franchise: canonical.franchise,
+      medium: canonical.medium,
+      iconicShape: canonical.iconicShape,
+    },
     archetypeSignals: { primaryArchetypes: ['Hero'], secondaryArchetypes: ['Explorer'], shadowArchetypes: ['Outlaw'] },
     jungFunctions: { egoMode: 'Adaptive', personaMode: 'Charismatic', shadowPattern: 'Repression', feelingChannel: 'Loyalty', erosNeed: 'Connection', truthOrientation: 'Pragmatic', powerStance: 'Authoritative', relationalPattern: 'Protective' },
     narrativeArc: { woundOrigin: 'Unknown', desire: 'Purpose', fear: 'Failure', trials: ['Challenge'], transformation: 'Growth', redemption: 'Integration' },
@@ -434,6 +442,20 @@ function validateAndEnrichProfile(profile, canonical) {
     if (!profile.narrativeArc.desire) profile.narrativeArc.desire = 'Desire to be discovered';
     if (!profile.narrativeArc.fear) profile.narrativeArc.fear = 'Fear to be discovered';
   }
+
+  // Preserve iconicShape from canonical (used for Psyche page shadow illustrations)
+  if (canonical.iconicShape) {
+    profile.iconicShape = canonical.iconicShape;
+  }
+  
+  // Also preserve canonical info for reference
+  profile.canonical = {
+    canonicalId: canonical.canonicalId,
+    name: canonical.name,
+    franchise: canonical.franchise,
+    medium: canonical.medium,
+    iconicShape: canonical.iconicShape,
+  };
 
   return profile;
 }

@@ -2,103 +2,113 @@
  * Tone Renderer Service
  * 
  * Transforms canonical narrative into tone-specific rendered output.
- * Does NOT modify insights, examples, or actions - only presentation style.
+ * 
+ * THREE NARRATIVE TONES:
+ * - MINIMAL: Action-oriented, no story form, characters only in Psyche & Examples
+ * - MODERN: Contemporary language, story form with recognized characters
+ * - MYTHICAL: Magical/fairy-tale style with recognized characters, accessible language
  */
 
 import OpenAI from 'openai';
 
-// Supported tones
+// Supported tones - simplified to 3 distinct styles
 export const NarrativeTone = {
-  PLAIN: 'PLAIN',
-  MYTHIC: 'MYTHIC',
-  REFLECTIVE: 'REFLECTIVE',
-  PRACTICAL: 'PRACTICAL',
-  ANALYTICAL: 'ANALYTICAL',
+  MINIMAL: 'MINIMAL',
+  MODERN: 'MODERN',
+  MYTHICAL: 'MYTHICAL',
 };
 
 // Default tone
-export const DEFAULT_TONE = NarrativeTone.PLAIN;
+export const DEFAULT_TONE = NarrativeTone.MODERN;
 
-// Tone style instructions (prepended to rendering prompts)
-// These should produce DRAMATICALLY DIFFERENT outputs so users clearly notice the change
+// Tone style instructions - dramatically different outputs
 const TONE_INSTRUCTIONS = {
-  [NarrativeTone.PLAIN]: `TONE: PLAIN (Clear & Direct)
+  [NarrativeTone.MINIMAL]: `TONE: MINIMAL (Direct & Action-Oriented)
 Style requirements:
-- SHORT sentences. Maximum 15 words per sentence.
-- ZERO metaphors, ZERO poetic language, ZERO symbolic imagery
-- Write like you're explaining to a busy friend over coffee
-- "You tend to..." not "The shadow beckons..."
-- NEVER use words like: archetype, shadow, anima, psyche, unconscious
-- Instead say: pattern, hidden side, inner opposite, personality
-- No bullet points in narratives, but keep it snappy
-- Think: clear texting language, not literature`,
+- ZERO storytelling or narrative form
+- SHORT, direct sentences. Maximum 15 words per sentence.
+- Focus on ACTIONS and INSIGHTS only
+- Use bullet points and numbered lists wherever possible
+- DO NOT mention characters except in:
+  * Psyche/Identity identification sections (who represents what)
+  * Specific examples where characters illustrate a point
+- NO metaphors, NO poetic language, NO symbolic imagery
+- Write like a practical guide or executive summary
+- Structure: "What it means:", "What to do:", "Watch out for:"
+- Think: actionable checklist, not a story`,
 
-  [NarrativeTone.MYTHIC]: `TONE: MYTHIC (Epic & Poetic)
+  [NarrativeTone.MODERN]: `TONE: MODERN (Contemporary Story)
 Style requirements:
-- Write like an EPIC STORYTELLER revealing an ancient prophecy
-- Use RICH metaphors: "You carry the fire of the wounded healer..."
-- Dramatic, flowing sentences with emotional cadence
-- Reference archetypes through IMAGERY not labels: "the darkness that walks beside you" not "your shadow"
-- Use mythological/fairy tale framing: quests, thresholds, kingdoms, masks, mirrors
-- Create a sense of DESTINY and sacred meaning
-- Include phrases like: "And so it was written...", "In your soul's geography...", "The story your life tells..."
-- Make it feel like discovering an ancient map of the self`,
+- Write in a STORY FORM using contemporary, relatable language
+- WEAVE the user's recognized characters throughout the narrative
+- Reference characters by name: "Like [Character Name], you..."
+- Use modern, everyday language - no archaic or overly formal terms
+- Create a coherent personal narrative arc
+- Include character comparisons: "Your inner [Character] emerges when..."
+- Conversational but meaningful tone
+- Structure insights as discoveries in the user's personal story
+- Think: a thoughtful friend explaining your patterns through your favorite characters`,
 
-  [NarrativeTone.REFLECTIVE]: `TONE: REFLECTIVE (Therapeutic & Gentle)
+  [NarrativeTone.MYTHICAL]: `TONE: MYTHICAL (Enchanting & Epic)
 Style requirements:
-- Write like a WISE, WARM THERAPIST or mentor
-- Ask QUESTIONS: "What might this mean for you?", "Notice how...", "You might explore..."
-- Use invitational language: "Perhaps...", "You may find...", "Consider..."
-- Create SPACE for the reader: "Sit with this...", "Let this settle..."
-- Emphasize awareness and curiosity over answers
-- Soft transitions: "And gently...", "Moving inward..."
-- Include phrases like: "What opens for you when you consider...", "How does it feel to see..."
-- NEVER give direct commands. Always invite.`,
-
-  [NarrativeTone.PRACTICAL]: `TONE: PRACTICAL (Action-Oriented)
-Style requirements:
-- Structure with BULLET POINTS and numbered lists wherever possible
-- Direct COMMANDS: "Do this:", "Avoid:", "When X happens, try Y"
-- Situational framing: "At work:", "In relationships:", "Under stress:"
-- CONCRETE examples and specific actions
-- No philosophy, no poetry, no exploration
-- Include checkable items: "✓ Notice when...", "⚠️ Watch for..."
-- Time-bound where possible: "This week, practice...", "Daily, check in on..."
-- Think: executive summary meets life coach`,
-
-  [NarrativeTone.ANALYTICAL]: `TONE: ANALYTICAL (Jungian Framework)
-Style requirements:
-- USE FULL JUNGIAN TERMINOLOGY explicitly: Ego, Shadow, Anima/Animus, Persona, Self
-- Include structural explanations: "This represents the Ego-Shadow axis where..."
-- Map psychological dynamics clearly: "Your Feeling Function compensates for..."
-- Academic but accessible sentences (complex structure allowed)
-- Include phrases like: "In Jungian terms...", "This archetypal pattern indicates...", "The compensatory relationship between..."
-- Reference psychological functions: Thinking, Feeling, Sensing, Intuiting
-- Explain the WHY of each insight using the framework
-- Like reading a psychological case study about yourself`,
+- Write like a FAIRY TALE or EPIC MYTH
+- Use MAGICAL, enchanting language but keep it ACCESSIBLE (no obscure words)
+- Transform the user's journey into a quest or adventure
+- Characters become heroes, guides, and shadows in the story
+- Use phrases like: "Once upon a time...", "In the kingdom of your soul...", "The hero within you..."
+- Create a sense of WONDER and DESTINY
+- Include magical imagery: quests, enchanted forests, hidden treasures, wise guides
+- Make patterns feel like ancient prophecies being revealed
+- IMPORTANT: Keep language simple enough for anyone to understand
+- Avoid: complex vocabulary, Jungian jargon, academic terms
+- Think: Disney meets Joseph Campbell - magical but accessible`,
 };
 
 // Human-friendly tone labels
 export const TONE_LABELS = {
-  [NarrativeTone.PLAIN]: 'Clear & Direct',
-  [NarrativeTone.MYTHIC]: 'Mythic & Poetic',
-  [NarrativeTone.REFLECTIVE]: 'Gentle & Contemplative',
-  [NarrativeTone.PRACTICAL]: 'Action-Oriented',
-  [NarrativeTone.ANALYTICAL]: 'Deep & Psychological',
+  [NarrativeTone.MINIMAL]: 'Minimal',
+  [NarrativeTone.MODERN]: 'Modern',
+  [NarrativeTone.MYTHICAL]: 'Mythical',
 };
 
 // Tone descriptions for UI
 export const TONE_DESCRIPTIONS = {
-  [NarrativeTone.PLAIN]: 'No metaphors, just clear everyday language you can share with anyone',
-  [NarrativeTone.MYTHIC]: 'Rich with archetypal imagery, metaphors, and epic storytelling',
-  [NarrativeTone.REFLECTIVE]: 'Soft questions and invitations — like a wise friend speaking',
-  [NarrativeTone.PRACTICAL]: 'Bullet points and directives — ready for immediate action',
-  [NarrativeTone.ANALYTICAL]: 'Full Jungian terminology — ego, shadow, anima explained explicitly',
+  [NarrativeTone.MINIMAL]: 'Clean, action-oriented insights without storytelling. Characters appear only in identification and examples.',
+  [NarrativeTone.MODERN]: 'Contemporary narrative weaving your characters into a meaningful personal story.',
+  [NarrativeTone.MYTHICAL]: 'Enchanting, fairy-tale style narrative bringing your characters to life in an epic journey.',
+};
+
+// Legacy tone mapping for backward compatibility
+const LEGACY_TONE_MAP = {
+  'PLAIN': NarrativeTone.MINIMAL,
+  'PRACTICAL': NarrativeTone.MINIMAL,
+  'ANALYTICAL': NarrativeTone.MINIMAL,
+  'REFLECTIVE': NarrativeTone.MODERN,
+  'MYTHIC': NarrativeTone.MYTHICAL,
 };
 
 /**
+ * Normalize tone value (handles legacy tones)
+ */
+export function normalizeTone(tone) {
+  if (!tone) return DEFAULT_TONE;
+  const upper = tone.toUpperCase();
+  
+  // Check if it's a new tone
+  if (Object.values(NarrativeTone).includes(upper)) {
+    return upper;
+  }
+  
+  // Map legacy tone
+  if (LEGACY_TONE_MAP[upper]) {
+    return LEGACY_TONE_MAP[upper];
+  }
+  
+  return DEFAULT_TONE;
+}
+
+/**
  * Extract canonical narrative from generated output
- * This normalizes existing output into the canonical format
  */
 export function extractCanonicalNarrative(output, context = 'ME') {
   if (!output) return null;
@@ -111,7 +121,7 @@ export function extractCanonicalNarrative(output, context = 'ME') {
       examples: extractExamples(output),
       actions: extractActions(output),
       warnings: extractWarnings(output),
-      // Preserve full structure for rendering
+      characters: extractCharacters(output),
       fullOutput: output,
     };
   } else if (context === 'RELATIONSHIP') {
@@ -127,6 +137,29 @@ export function extractCanonicalNarrative(output, context = 'ME') {
   }
 
   return { fullOutput: output };
+}
+
+// Helper: Extract characters for narrative weaving
+function extractCharacters(output) {
+  const characters = [];
+  
+  if (output.identification_v2?.center?.character) {
+    characters.push({
+      name: output.identification_v2.center.character,
+      role: 'ego',
+    });
+  }
+  
+  if (output.identification_v2?.orbit) {
+    output.identification_v2.orbit.forEach(o => {
+      characters.push({
+        name: o.character,
+        role: o.role,
+      });
+    });
+  }
+  
+  return characters;
 }
 
 // Helper: Extract core insights from Me output
@@ -249,12 +282,6 @@ function extractRelationshipWarnings(output) {
 
 /**
  * Render a specific section in the requested tone
- * 
- * @param {Object} canonicalNarrative - The canonical narrative object
- * @param {string} tone - One of NarrativeTone values
- * @param {string} context - 'ME' or 'RELATIONSHIP'
- * @param {string} section - Section to render (e.g., 'story', 'identification')
- * @returns {Promise<Object>} - Rendered section
  */
 export async function renderSection(canonicalNarrative, tone, context, section) {
   if (!canonicalNarrative?.fullOutput) {
@@ -262,15 +289,12 @@ export async function renderSection(canonicalNarrative, tone, context, section) 
     return null;
   }
 
-  // Validate tone
-  if (!Object.values(NarrativeTone).includes(tone)) {
-    console.warn(`[ToneRenderer] Invalid tone "${tone}", falling back to PLAIN`);
-    tone = NarrativeTone.PLAIN;
-  }
+  // Normalize tone (handles legacy values)
+  tone = normalizeTone(tone);
 
-  // If PLAIN, return original (no transformation needed)
-  if (tone === NarrativeTone.PLAIN) {
-    return canonicalNarrative.fullOutput[section] || canonicalNarrative.fullOutput;
+  // If MINIMAL, apply minimal transformation (strip narrative, keep structure)
+  if (tone === NarrativeTone.MINIMAL) {
+    return transformToMinimal(canonicalNarrative.fullOutput[section], section);
   }
 
   const sectionContent = canonicalNarrative.fullOutput[section];
@@ -279,13 +303,43 @@ export async function renderSection(canonicalNarrative, tone, context, section) 
   }
 
   try {
-    const rendered = await transformToTone(sectionContent, tone, context, section);
+    const rendered = await transformToTone(
+      sectionContent, 
+      tone, 
+      context, 
+      section,
+      canonicalNarrative.characters || []
+    );
     return rendered;
   } catch (error) {
     console.error(`[ToneRenderer] Failed to render ${section} in ${tone} tone:`, error);
-    // Fallback to original
     return sectionContent;
   }
+}
+
+/**
+ * Transform content to MINIMAL tone (no LLM needed - structural transformation)
+ */
+function transformToMinimal(content, section) {
+  if (!content) return content;
+  
+  // For minimal tone, we strip narrative elements but keep the structure
+  // This is a lightweight transformation that doesn't need LLM
+  if (typeof content === 'object') {
+    const minimal = { ...content };
+    
+    // Remove narrative-heavy fields, keep actionable content
+    if (minimal.narrative) delete minimal.narrative;
+    if (minimal.story && typeof minimal.story === 'string') {
+      // Convert story to bullet points
+      minimal.keyPoints = minimal.story.split('. ').filter(s => s.length > 10);
+      delete minimal.story;
+    }
+    
+    return minimal;
+  }
+  
+  return content;
 }
 
 /**
@@ -296,19 +350,33 @@ export async function renderFullOutput(canonicalNarrative, tone, context) {
     return null;
   }
 
-  if (tone === NarrativeTone.PLAIN) {
-    return canonicalNarrative.fullOutput;
+  tone = normalizeTone(tone);
+
+  if (tone === NarrativeTone.MINIMAL) {
+    // For minimal, do structural transformation without LLM
+    const output = canonicalNarrative.fullOutput;
+    const rendered = { ...output };
+    
+    const sections = context === 'ME' 
+      ? ['story', 'identification', 'functioning', 'actions', 'lifeDomains']
+      : ['myth', 'narrative'];
+    
+    sections.forEach(section => {
+      if (output[section]) {
+        rendered[section] = transformToMinimal(output[section], section);
+      }
+    });
+    
+    return rendered;
   }
 
   const output = canonicalNarrative.fullOutput;
   const rendered = { ...output };
 
-  // Determine sections to render based on context
   const sections = context === 'ME' 
     ? ['story', 'identification', 'functioning', 'actions', 'lifeDomains']
     : ['myth', 'narrative'];
 
-  // Render each section in parallel
   const renderPromises = sections.map(async (section) => {
     if (output[section]) {
       const renderedSection = await renderSection(canonicalNarrative, tone, context, section);
@@ -325,7 +393,6 @@ export async function renderFullOutput(canonicalNarrative, tone, context) {
     }
   });
 
-  // Preserve non-narrative fields
   rendered.examples = output.examples;
   rendered.meta = output.meta;
   rendered.identification_v2 = output.identification_v2;
@@ -336,13 +403,19 @@ export async function renderFullOutput(canonicalNarrative, tone, context) {
 /**
  * Transform content to specified tone using LLM
  */
-async function transformToTone(content, tone, context, section) {
+async function transformToTone(content, tone, context, section, characters = []) {
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   
   const toneInstruction = TONE_INSTRUCTIONS[tone];
   const contentStr = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+  
+  // Include character context for MODERN and MYTHICAL tones
+  const characterContext = characters.length > 0 
+    ? `\n\nUSER'S CHARACTERS (weave these into the narrative):\n${characters.map(c => `- ${c.name} (${c.role})`).join('\n')}`
+    : '';
 
   const prompt = `${toneInstruction}
+${characterContext}
 
 CRITICAL RULES:
 1. Do NOT add new insights or interpretations
@@ -351,6 +424,7 @@ CRITICAL RULES:
 4. ONLY change the style and language
 5. Preserve the exact structure (if JSON, return valid JSON)
 6. Keep all examples, actions, and warnings intact
+7. For MODERN/MYTHICAL: Reference characters by name throughout the narrative
 
 Context: ${context}
 Section: ${section}
@@ -370,20 +444,17 @@ Return the transformed content in the same format (JSON if input was JSON).`;
         },
         { role: 'user', content: prompt }
       ],
-      temperature: 0.3, // Low temp for consistency
+      temperature: 0.3,
       max_tokens: 4000,
     });
 
     const result = response.choices[0].message.content;
 
-    // Try to parse as JSON if original was object
     if (typeof content === 'object') {
       try {
-        // Clean markdown code blocks if present
         const cleaned = result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
         return JSON.parse(cleaned);
       } catch {
-        // If parse fails, return as-is
         return result;
       }
     }
@@ -399,14 +470,15 @@ Return the transformed content in the same format (JSON if input was JSON).`;
  * Get cache key for rendered content
  */
 export function getToneCacheKey(canonicalHash, tone, section) {
-  return `tone_${canonicalHash}_${tone}_${section}`;
+  return `tone_${canonicalHash}_${normalizeTone(tone)}_${section}`;
 }
 
 /**
  * Validate that tone is supported
  */
 export function isValidTone(tone) {
-  return Object.values(NarrativeTone).includes(tone);
+  const normalized = normalizeTone(tone);
+  return Object.values(NarrativeTone).includes(normalized);
 }
 
 /**

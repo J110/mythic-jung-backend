@@ -192,12 +192,12 @@ toneRouter.post('/render/relationship', async (req, res, next) => {
     
     console.log(`[Tone] Render Relationship request: tone=${requestedTone}, section=${section}, force=${force}`);
     
-    // Romantic relationships default to MYTHIC unless user has explicit preference
+    // Romantic relationships default to MYTHICAL unless user has explicit preference
     const relationshipSet = await db.getRelationshipSet(userId);
     if (relationshipSet?.relationshipType === 'romantic' && !tone) {
       const userPrefs = await db.getUserPreferences(userId);
       if (!userPrefs.narrativeTone) {
-        requestedTone = NarrativeTone.MYTHIC;
+        requestedTone = NarrativeTone.MYTHICAL;
       }
     }
     

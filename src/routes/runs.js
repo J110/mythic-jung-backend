@@ -361,6 +361,19 @@ function extractStructuralPositions(selfModel, profiles) {
   const mappings = selfModel?.coreMappings || {};
   const dynamics = selfModel?.identificationDynamics || {};
   
+  // Create a lookup map for character iconicShape from profiles
+  const iconicShapeMap = new Map();
+  console.log('[Runs] Building iconicShape map from profiles:');
+  (profiles || []).forEach(profile => {
+    const name = profile?.name || profile?.canonical?.name;
+    const iconicShape = profile?.iconicShape || profile?.canonical?.iconicShape;
+    console.log(`  - Profile "${name}": iconicShape=${iconicShape || 'NOT FOUND'}, hasCanonical=${!!profile?.canonical}`);
+    if (name && iconicShape) {
+      iconicShapeMap.set(name.toLowerCase(), iconicShape);
+    }
+  });
+  console.log('[Runs] IconicShape map:', Object.fromEntries(iconicShapeMap));
+  
   const getPosition = (mappingKey, dynamicsKey) => {
     const mapping = mappings[mappingKey];
     const dynData = dynamics[dynamicsKey];
@@ -368,6 +381,9 @@ function extractStructuralPositions(selfModel, profiles) {
     const primary = mapping?.characterRefs?.[0] || dynData?.primary?.character;
     const secondary = dynData?.secondary?.map(s => s.characterId || s.character) || [];
     const confidence = dynData?.primary?.confidence || dynData?.roleConfidence || mapping?.confidence || 0.5;
+    
+    // Look up iconicShape for the primary character
+    const iconicShape = primary ? iconicShapeMap.get(primary.toLowerCase()) : null;
     
     // Collect evidence flags
     const evidenceFlags = [];
@@ -382,6 +398,7 @@ function extractStructuralPositions(selfModel, profiles) {
       secondary,
       confidence,
       evidenceFlags,
+      iconicShape,
     });
   };
   

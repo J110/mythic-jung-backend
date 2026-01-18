@@ -109,7 +109,8 @@ Generate a JSON response with this EXACT structure (all fields required):
     "mythSummary": "A 4-6 paragraph narrative that reads like a mythical origin story. Start with an evocative opening that names the Ego character. Weave in how Persona, Shadow, and other characters represent different soul aspects. Make it feel like discovering an ancient prophecy about oneself. Reference specific character moments and arcs.",
     "centralTension": "2-4 sentences describing the core inner conflict, using specific character dynamics. Example: 'Like [Character A] torn between mission and loyalty, and [Character B] hiding vulnerability beneath control, you live in the space where...'",
     "guidingSentence": "One powerful, memorable sentence that captures the essence of this person's mythic journey. Make it feel like destiny.",
-    "northStarScene": "A vivid 2-3 sentence description of an imagined scene that represents their highest potential, drawing from character imagery."
+    "northStarScene": "A vivid 2-3 sentence description of an imagined scene that represents their highest potential, drawing from character imagery.",
+    "currentChapter": "2-4 paragraphs describing the current phase of their psychological journey. Where are they NOW in their myth? What patterns are active? What is being shed and what is emerging? Reference current character dynamics and the transition they're navigating. Make it feel present and alive, not abstract."
   },
   "identification": {
     "ego": {

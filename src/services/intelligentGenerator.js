@@ -142,12 +142,13 @@ export async function generateIntelligentOutput(userData, options = {}) {
     console.log(`[Step 1] Warning: ${ambiguous.length} ambiguous - using first candidates`);
   }
 
-  // Map to canonicals
+  // Map to canonicals (preserving iconicShape from recognition)
   const canonicals = recognitionResult.results.map((result, index) => {
     if (result.status === RecognitionStatus.RECOGNIZED) {
+      console.log(`[Step 1] Recognized: ${result.canonical?.name} -> iconicShape: ${result.canonical?.iconicShape || 'MISSING'}`);
       return result.canonical;
     } else if (result.status === RecognitionStatus.AMBIGUOUS && result.candidates.length > 0) {
-      console.warn(`[Step 1] Ambiguous: ${characterInputs[index]} -> ${result.candidates[0].name}`);
+      console.warn(`[Step 1] Ambiguous: ${characterInputs[index]} -> ${result.candidates[0].name}, iconicShape: ${result.candidates[0]?.iconicShape || 'MISSING'}`);
       return result.candidates[0];
     } else {
       console.warn(`[Step 1] Placeholder: ${characterInputs[index]}`);
@@ -157,9 +158,14 @@ export async function generateIntelligentOutput(userData, options = {}) {
         franchise: 'Unknown',
         medium: 'unknown',
         portrayal: null,
+        iconicShape: 'silhouette', // Default for unrecognized
       };
     }
   });
+  
+  // Debug: Log all canonicals with iconicShape
+  console.log('[Step 1] Canonicals with iconicShape:');
+  canonicals.forEach(c => console.log(`  - ${c.name}: ${c.iconicShape || 'NOT SET'}`));
 
   // Step 2: Character Discovery (gpt-4o - REQUIRED for archetypal depth)
   // Discovery has its own internal caching by canonicalId + reference
@@ -212,7 +218,7 @@ export async function generateIntelligentOutput(userData, options = {}) {
   } catch (exampleError) {
     console.error('[Step 5] Example generation error:', exampleError.message);
     examples = {
-      story: { mythSummary: [], centralTension: [], guidingSentence: [], northStarScene: [] },
+      story: { mythSummary: [], centralTension: [], guidingSentence: [], northStarScene: [], currentChapter: [] },
       identification: { ego: [], persona: [], shadow: [], shadowVirtue: [], feelingFunction: [], erosAxis: [] },
       functioning: { coreTraits: [], symbolicEssence: [], narrativeArc: [], redemptionArc: [], costsAndCompensations: [], alignmentIndicators: [] },
       actions: [],

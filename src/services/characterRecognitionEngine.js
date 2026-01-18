@@ -198,6 +198,70 @@ CRITICAL RULES:
 7. RETURN COMPLETE ARRAY:
    You MUST return ${inputs.length} results, one for each input, in the SAME ORDER.
 
+8. ICONIC SHAPE (REQUIRED for all recognized characters):
+   Return a FIGURE TYPE that represents the character's appearance/profession.
+   This creates a recognizable human silhouette that helps users confirm the character.
+   
+   === MALE FIGURES ===
+   
+   - "figure_tall" → Imposing, powerful standing men
+     Examples: Jack Reacher, John Wick, The Terminator, bodyguards
+   
+   - "figure_suit" → Men in formal suit
+     Examples: James Bond, Don Draper, Harvey Specter, Tony Stark
+   
+   - "figure_coat" → Men in long coat, detective/mysterious
+     Examples: Sherlock Holmes, Neo (Matrix), Columbo
+   
+   - "figure_cane" → Men with walking cane, intellectual
+     Examples: Gregory House, Victorian gentlemen
+   
+   - "figure_seated" → Seated men, rulers/thinkers
+     Examples: Tywin Lannister, Michael Corleone, philosophers
+   
+   - "figure_hood" → Hooded men, assassin/mysterious
+     Examples: V (Vendetta), Ezio, hackers
+   
+   - "figure_hat" → Men with distinctive hat
+     Examples: Indiana Jones, Rick Blaine, noir detectives
+   
+   - "figure_cape" → Caped men, heroes
+     Examples: Batman, Superman, Darth Vader
+   
+   - "figure_staff" → Men with staff, wizards/sages
+     Examples: Gandalf, Dumbledore
+   
+   - "figure_profile" → Male side profile, thinkers
+     Examples: Authors, philosophers
+   
+   === FEMALE FIGURES ===
+   
+   - "figure_elegant" → Elegant standing woman, powerful feminine presence
+     Examples: Wonder Woman, Black Widow, Lara Croft, strong female leads
+   
+   - "figure_dress" → Woman in flowing dress, graceful
+     Examples: Daenerys, Scarlett O'Hara, Elizabeth Bennet, royalty
+   
+   - "figure_gown" → Woman in evening gown, sophisticated
+     Examples: Classic Hollywood stars, formal occasions, glamorous
+   
+   - "figure_suit_f" → Professional woman in suit/business attire
+     Examples: Claire Underwood, Miranda Priestly, Annalise Keating, executives
+   
+   - "figure_warrior_f" → Female warrior, athletic silhouette
+     Examples: Katniss, Mulan, Xena, Furiosa, action heroines
+   
+   - "figure_hood_f" → Hooded woman, mysterious
+     Examples: Arya Stark, female assassins, mysterious women
+   
+   - "figure_cape_f" → Caped woman, heroic/royal
+     Examples: Supergirl, Maleficent, queens, sorceresses
+   
+   - "figure_profile_f" → Female side profile, intellectual
+     Examples: Female authors, scientists (Marie Curie), thinkers
+   
+   DECISION RULE: Match the character's GENDER and pick the figure that best represents their role/appearance.
+
 Return valid JSON:
 {
   "characters": [
@@ -211,7 +275,8 @@ Return valid JSON:
       "medium": "film/tv/book/real-life/historical",
       "confidence": 0.9,
       "matchesReference": true,
-      "inputWasActor": false
+      "inputWasActor": false,
+      "iconicShape": "fist"
     }
   ]
 }`;
@@ -402,6 +467,7 @@ Return valid JSON with "characters" array containing all results.` },
             name: match.name,
             franchise: match.franchise || 'Unknown',
             medium: match.medium || 'unknown',
+            iconicShape: match.iconicShape || 'silhouette',
           } : null,
           candidates: [],
           requiredDisambiguation: [
@@ -451,6 +517,7 @@ Return valid JSON with "characters" array containing all results.` },
             name: match.name,
             franchise: match.franchise || 'Unknown',
             medium: match.medium || 'unknown',
+            iconicShape: match.iconicShape || 'silhouette',
           } : null,
           candidates: [],
           requiredDisambiguation: [
@@ -479,6 +546,7 @@ Return valid JSON with "characters" array containing all results.` },
           franchise: match.franchise || 'Unknown',
           medium: match.medium || 'unknown',
           portrayal: match.portrayal || null,
+          iconicShape: match.iconicShape || 'silhouette',
         },
         candidates: [],
         requiredDisambiguation: [],
@@ -818,6 +886,7 @@ function createRecognitionResult(normalized, scored) {
         franchise: top1.franchise || 'Unknown',
         medium: top1.medium || 'unknown',
         portrayal: top1.portrayal || null,
+        iconicShape: top1.iconicShape || 'silhouette',
       },
       candidates: [],
       requiredDisambiguation: [],
@@ -834,6 +903,7 @@ function createRecognitionResult(normalized, scored) {
       franchise: c.franchise || 'Unknown',
       medium: c.medium || 'unknown',
       portrayal: c.portrayal || null,
+      iconicShape: c.iconicShape || 'silhouette',
     }));
 
     return {

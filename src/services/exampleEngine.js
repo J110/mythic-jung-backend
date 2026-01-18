@@ -83,7 +83,7 @@ function ensureAssessmentAlignedExamples(examples, priorities, profiles) {
   // Story: At least 1 example from dominantNow character (if answered)
   if (priorities.dominantNow.length > 0 && examples.story) {
     const dominantChar = priorities.dominantNow[0];
-    const storyKeys = ['mythSummary', 'centralTension', 'guidingSentence', 'northStarScene'];
+    const storyKeys = ['mythSummary', 'centralTension', 'guidingSentence', 'northStarScene', 'currentChapter'];
     
     storyKeys.forEach(key => {
       if (examples.story[key]?.length > 0) {
@@ -262,6 +262,10 @@ function extractAllMappings(narrativeOutput, selfModel) {
       theme: 'vision of highest potential',
       content: story.northStarScene || '',
     },
+    currentChapter: {
+      theme: 'present journey and current phase',
+      content: story.currentChapter?.substring(0, 300) || '',
+    },
   };
   
   // === ACTIONS MAPPINGS ===
@@ -332,6 +336,7 @@ function createEmptyExamples() {
       centralTension: [],
       guidingSentence: [],
       northStarScene: [],
+      currentChapter: [],
     },
     identification: {
       ego: [],
@@ -455,7 +460,8 @@ Generate JSON with real film/TV/book examples:
     "mythSummary": [2 examples about identity/origin],
     "centralTension": [2 examples about conflict],
     "guidingSentence": [1 example about purpose],
-    "northStarScene": [1 example about potential]
+    "northStarScene": [1 example about potential],
+    "currentChapter": [1 example about present transition]
   },
   "identification": {
     "ego": [{"characterName":"${mappings.identification.ego?.character || ''}", "reference":{"title":"","year":"","medium":"film"}, "situation":"", "actions":[""], "outcomeAndCost":[""], "tier":"A"}],
@@ -495,7 +501,7 @@ function validateAndStructureExamples(parsed, mappings) {
   
   // === STORY EXAMPLES ===
   if (parsed.story) {
-    const storyKeys = ['mythSummary', 'centralTension', 'guidingSentence', 'northStarScene'];
+    const storyKeys = ['mythSummary', 'centralTension', 'guidingSentence', 'northStarScene', 'currentChapter'];
     storyKeys.forEach(key => {
       if (Array.isArray(parsed.story[key])) {
         result.story[key] = parsed.story[key].filter(isValidExample);

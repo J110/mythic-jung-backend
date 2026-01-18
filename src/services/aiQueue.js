@@ -14,8 +14,8 @@ const AI_QUEUE_CONFIG = {
   intervalCap: 40,
   interval: 60 * 1000, // 1 minute
   
-  // Timeout per request - increased to 5 minutes for complex generation
-  timeout: 300 * 1000, // 5 minutes
+  // Timeout per request - increased to 10 minutes for complex generation
+  timeout: 600 * 1000, // 10 minutes
   
   // Don't throw on timeout - let individual calls handle errors gracefully
   throwOnTimeout: false,

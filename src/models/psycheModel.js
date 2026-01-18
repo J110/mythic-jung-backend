@@ -72,6 +72,9 @@ export function generateRunId() {
 
 /**
  * Create a StructuralPosition object
+ * @param {string} primary - Primary character name
+ * @param {object} options - Additional options
+ * @param {string} options.iconicShape - Iconic shape for shadow illustration (e.g., "fist", "gun", "cane")
  */
 export function createStructuralPosition(primary, options = {}) {
   return {
@@ -79,6 +82,7 @@ export function createStructuralPosition(primary, options = {}) {
     secondary: options.secondary || [],
     confidence: options.confidence || 0.5,
     evidenceFlags: options.evidenceFlags || [],
+    iconicShape: options.iconicShape || null,
   };
 }
 
